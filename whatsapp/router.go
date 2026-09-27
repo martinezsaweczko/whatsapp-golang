@@ -44,15 +44,17 @@ type Command struct {
 
 // Router dispatches incoming WhatsApp messages to registered commands
 type Router struct {
-	log      *slog.Logger
-	metrics  *o11.CommandMetrics
-	tracer   trace.Tracer
-	sender   Sender
-	commands []Command
-	fallback CommandHandler
-	botJIDs  []string // JID forms that count as a bot mention (@lid, @c.us)
-	timeout  time.Duration
-	wg       sync.WaitGroup
+	log         *slog.Logger
+	metrics     *o11.CommandMetrics
+	tracer      trace.Tracer
+	sender      Sender
+	commands    []Command
+	fallback    CommandHandler
+	botJIDs     []string // JID forms that count as a bot mention (@lid, @c.us)
+	timeout     time.Duration
+	wg          sync.WaitGroup
+	onConnected func(ctx context.Context)
+	onLoggedOut func()
 }
 
 // NewRouter creates a command router
@@ -84,6 +86,16 @@ func (r *Router) SetFallback(handler CommandHandler) {
 	r.fallback = handler
 }
 
+// SetConnectedHook sets the callback invoked when the client connects
+func (r *Router) SetConnectedHook(hook func(ctx context.Context)) {
+	r.onConnected = hook
+}
+
+// SetLoggedOutHook sets the callback invoked when the client is logged out
+func (r *Router) SetLoggedOutHook(hook func()) {
+	r.onLoggedOut = hook
+}
+
 // Wait blocks until all in-flight command handlers finish (used during shutdown)
 func (r *Router) Wait() {
 	r.wg.Wait()
@@ -96,19 +108,17 @@ func (r *Router) HandleEvent(evt interface{}) {
 		r.dispatch(v)
 	case *events.Connected:
 		r.log.Info("WhatsApp client connected")
+		if r.onConnected != nil {
+			go r.onConnected(context.Background())
+		}
 	case *events.LoggedOut:
-		r.log.Error("WhatsApp client logged out, exiting to trigger restart")
-		// Exit non-zero so the container/supervisor restarts the process
-		// (a new login flow will be required)
+		r.log.Error("WhatsApp client logged out")
 		r.wg.Wait()
-		r.onLoggedOut()
+		if r.onLoggedOut != nil {
+			r.onLoggedOut()
+		}
 	}
 }
-
-// onLoggedOut is called on a LoggedOut event. It is a variable to allow testing.
-var onLoggedOutFn = func() {}
-
-func (r *Router) onLoggedOut() { onLoggedOutFn() }
 
 // dispatch routes a message to the first matching command, or the fallback
 func (r *Router) dispatch(evt *events.Message) {

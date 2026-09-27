@@ -5,10 +5,10 @@ go 1.27.0
 require (
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/sashabaranov/go-openai v1.42.1
+	github.com/wcharczuk/go-chart/v2 v2.1.2
 	go.mau.fi/whatsmeow v0.0.0-20260925162019-b3832c2bd1d1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
 	go.opentelemetry.io/otel v1.46.0
@@ -37,6 +37,7 @@ require (
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
@@ -60,6 +61,7 @@ require (
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
+	golang.org/x/image v0.18.0 // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect

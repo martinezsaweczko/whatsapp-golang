@@ -75,6 +75,7 @@ func LoadConfig() (*Config, *ConfigError) {
 	var weatherNoteWords int
 	var stabilityAPIKey, esiosAPIKey string
 	var commandTimeout int
+	var pairPhone, electricityCacheDir string
 
 	// Flags public file server
 	flag.StringVar(&serverAddress, "http-address", "0.0.0.0", "Public file server address")
@@ -122,6 +123,8 @@ func LoadConfig() (*Config, *ConfigError) {
 	flag.StringVar(&stabilityAPIKey, "stability-api-key", "", "Stability AI API key")
 	flag.StringVar(&esiosAPIKey, "esios-api-key", "", "ESIOS (REE) API token")
 	flag.IntVar(&commandTimeout, "command-timeout", 60, "Max execution time in seconds for a WhatsApp command")
+	flag.StringVar(&pairPhone, "bot-pair-phone", "", "Phone number to pair with a code instead of QR (first login only)")
+	flag.StringVar(&electricityCacheDir, "electricity-cache-dir", "/tmp", "Directory for electricity price cache files")
 
 	flag.Parse()
 
@@ -200,6 +203,8 @@ func LoadConfig() (*Config, *ConfigError) {
 		StabilityAPIKey:        stabilityAPIKey,
 		EsiosAPIKey:            esiosAPIKey,
 		CommandTimeout:         commandTimeout,
+		PairPhone:              pairPhone,
+		ElectricityCacheDir:    electricityCacheDir,
 	}
 
 	if err := config.Bot.validate(); err != nil {

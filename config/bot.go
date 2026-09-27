@@ -39,6 +39,13 @@ type BotConfig struct {
 
 	// CommandTimeout is the max execution time (seconds) for a WhatsApp command
 	CommandTimeout int
+
+	// PairPhone, when set and no session exists, requests a pairing code for
+	// this phone number instead of showing a QR code
+	PairPhone string
+
+	// ElectricityCacheDir is where the kwh-*.json/png cache files are stored
+	ElectricityCacheDir string
 }
 
 func (b *BotConfig) validate() error {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/gofrs/uuid"
 
@@ -13,7 +14,8 @@ import (
 	"github.com/martinezsaweczko/whatsappBot-golang/http_server"
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
 	"github.com/martinezsaweczko/whatsappBot-golang/o11"
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/martinezsaweczko/whatsappBot-golang/repository"
+	"github.com/martinezsaweczko/whatsappBot-golang/whatsapp"
 )
 
 // Buildinfo variables set via LDFlags in the Makefile
@@ -24,9 +26,9 @@ var (
 )
 
 func main() {
-
 	// Create context for the application
 	ctx := context.Background()
+
 	// Create an instance of the application
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -34,34 +36,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create logger with config options
+	// Create logger with config options, wrapped with trace correlation
 	file, errFile := config.LogFilePath(cfg.Log.FilePath)
 	if errFile != nil {
 		fmt.Printf("Error opening log file: %v\n", errFile)
 		os.Exit(1)
 	}
-
 	defer file.Close()
 
 	logLevel := config.ParseLogLevel(cfg.Log.Level)
-	log := slog.New(slog.NewTextHandler(file, &slog.HandlerOptions{Level: logLevel}))
+	baseHandler := slog.NewTextHandler(file, &slog.HandlerOptions{Level: logLevel})
+	log := slog.New(o11.NewTraceLogHandler(baseHandler))
 
 	// Group execution UUID for all logs in this run
 	executionID, _ := uuid.NewV4()
 	log = log.With("execution_id", executionID)
 
-	httpConf := &http_server.HTTPServerConfig{
-		Addr:         cfg.HttpServer.Address,
-		Port:         cfg.HttpServer.Port,
-		Timeout:      cfg.HttpServer.Timeout,
-		ReadTimeout:  cfg.HttpServer.ReadTimeout,
-		WriteTimeout: cfg.HttpServer.WriteTimeout,
-		Log:          log,
-	}
-
-	// Print build info and configuration details to the log
+	// Print build info
 	log.Info("Build Info information", "version", version, "build_time", buildTime, "app_name", appName)
-	log.Info("Configuration loaded", "http_address", httpConf.Addr, "http_port", httpConf.Port, "http_timeout", httpConf.Timeout, "http_read_timeout", httpConf.ReadTimeout, "http_write_timeout", httpConf.WriteTimeout, "log_level", cfg.Log.Level, "log_file_path", cfg.Log.FilePath)
 
 	// Set up OpenTelemetry providers.
 	otelShutdown, observabilityInst, otelErr := o11.SetupOTelSDK(ctx, &cfg.O11, "whatsappbot-golang", version)
@@ -69,15 +61,70 @@ func main() {
 		log.Error("OpenTelemetry setup error", "error", otelErr)
 		os.Exit(1)
 	}
+	defer func() {
+		if err := otelShutdown(ctx); err != nil {
+			log.Error("OpenTelemetry shutdown error", "error", err)
+		}
+	}()
 
-	defer otelShutdown(ctx)
+	// Open the application database
+	repo, repoErr := repository.New(cfg.Bot.DBPath, log)
+	if repoErr != nil {
+		log.Error("Database setup error", "error", repoErr)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := repo.Close(); err != nil {
+			log.Error("Database close error", "error", err)
+		}
+	}()
 
-	//httpServer is an implementation of the Server interface defined in the app package
-	httpServer := httpConf.New()
+	// Create the WhatsApp client and command router
+	waClient, waErr := whatsapp.NewClient(cfg.Bot.SessionDBPath, log)
+	if waErr != nil {
+		log.Error("WhatsApp client setup error", "error", waErr)
+		os.Exit(1)
+	}
+
+	commandMetrics, cmdErr := o11.NewCommandMetrics(observabilityInst.MeterProvider)
+	if cmdErr != nil {
+		log.Error("Command metrics setup error", "error", cmdErr)
+		os.Exit(1)
+	}
+
+	botJIDs := []string{
+		cfg.Bot.MentionedBotNumber,
+		cfg.Bot.BotNumber + "@c.us",
+	}
+	router := whatsapp.NewRouter(log, commandMetrics, observabilityInst.Trace, botJIDs,
+		time.Duration(cfg.Bot.CommandTimeout)*time.Second)
+	waClient.AddEventHandler(router.HandleEvent)
+
+	// HTTP servers
+	publicServer := (&http_server.HTTPServerConfig{
+		Addr:         cfg.HttpServer.Address,
+		Port:         cfg.HttpServer.Port,
+		Timeout:      cfg.HttpServer.Timeout,
+		ReadTimeout:  cfg.HttpServer.ReadTimeout,
+		WriteTimeout: cfg.HttpServer.WriteTimeout,
+		Log:          log,
+	}).New()
+
+	internalServer := (&http_server.HTTPServerConfig{
+		Addr:         cfg.InternalServer.Address,
+		Port:         cfg.InternalServer.Port,
+		Timeout:      cfg.InternalServer.Timeout,
+		ReadTimeout:  cfg.InternalServer.ReadTimeout,
+		WriteTimeout: cfg.InternalServer.WriteTimeout,
+		Log:          log,
+	}).New()
 
 	// Build app with all dependencies injected
-	app := app.NewApp(cfg).
-		WithServer(httpServer).
+	application := app.NewApp(cfg).
+		WithPublicServer(publicServer).
+		WithInternalServer(internalServer).
+		WithWhatsApp(waClient, router).
+		WithRepository(repo).
 		WithLog(log).
 		WithObservability(&observabilityInst).
 		WithBuildInfo(model.BuildInfo{
@@ -88,9 +135,8 @@ func main() {
 		WithBasePath("/api/v1")
 
 	// Run the application
-	errApp := app.Run()
-	if errApp != nil {
-		log.Error("Application error", "error", errApp)
+	if err := application.Run(); err != nil {
+		log.Error("Application error", "error", err)
 		os.Exit(1)
 	}
 

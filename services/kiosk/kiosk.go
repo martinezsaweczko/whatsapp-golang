@@ -22,13 +22,15 @@ import (
 
 // Category describes a kiosk category (nacional, internacional, magazine)
 type Category struct {
-	Name      string        // Short name used in commands ("nacional")
+	Name      string        // Short name used as category key ("nacional")
 	URLPrefix string        // Path prefix on the file server ("nacional_folder")
 	Dir       string        // Filesystem directory with the files
 	Retention time.Duration // How long a file stays listed
 	// Singular/Plural are used when formatting list messages
 	Singular string
 	Plural   string
+	// CommandWord is the word used to request a file ("periodico", "newspaper", "magazine")
+	CommandWord string
 	// RequestExample is the command example shown in lists ("periodico:2")
 	RequestExample string
 }
@@ -149,7 +151,7 @@ func (s *Service) ListMessage(ctx context.Context, category string) (string, err
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "*Lista de %s.* _Actualizados por orden de llegada de forma descendente_\n", cat.Plural)
-	fmt.Fprintf(&b, "Recuerde para solicitar un %s escriba: %s: num\nEjemplo: *_%s_*\n", cat.Singular, cat.Name, cat.RequestExample)
+	fmt.Fprintf(&b, "Recuerde para solicitar un %s escriba: %s: num\nEjemplo: *_%s_*\n", cat.Singular, cat.CommandWord, cat.RequestExample)
 
 	for i, f := range files {
 		fmt.Fprintf(&b, "\n%s num:*%d* %s", cat.Singular, i, f.Name)

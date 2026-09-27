@@ -11,10 +11,11 @@ import (
 	"time"
 
 	"github.com/martinezsaweczko/whatsappBot-golang/config"
-	"github.com/martinezsaweczko/whatsappBot-golang/http/handlers"
 	"github.com/martinezsaweczko/whatsappBot-golang/http/middleware"
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
 	"github.com/martinezsaweczko/whatsappBot-golang/o11"
+	"github.com/martinezsaweczko/whatsappBot-golang/repository"
+	"github.com/martinezsaweczko/whatsappBot-golang/whatsapp"
 )
 
 // Server defines the interface for any HTTP server implementation
@@ -28,21 +29,18 @@ type Server interface {
 	HandleFuncWithMiddleware(pattern string, handler func(http.ResponseWriter, *http.Request), middlewares ...middleware.Middleware)
 }
 
-type Handlers struct {
-	metricsHandler *handlers.MetricsHandler
-	versionHandler *handlers.VersionHandler
-	healthHandler  *handlers.HealthHandler
-}
-
 type App struct {
-	ctx           context.Context
-	config        *config.Config
-	server        Server
-	log           *slog.Logger
-	observability *o11.ObservabilityInst
-	handlers      *Handlers
-	buildInfo     model.BuildInfo
-	basePath      string
+	ctx            context.Context
+	config         *config.Config
+	publicServer   Server
+	internalServer Server
+	waClient       *whatsapp.Client
+	router         *whatsapp.Router
+	repo           *repository.DB
+	log            *slog.Logger
+	observability  *o11.ObservabilityInst
+	buildInfo      model.BuildInfo
+	basePath       string
 }
 
 func NewApp(cfg *config.Config) *App {
@@ -52,8 +50,24 @@ func NewApp(cfg *config.Config) *App {
 	}
 }
 
-func (app *App) WithServer(server Server) *App {
-	app.server = server
+func (app *App) WithPublicServer(server Server) *App {
+	app.publicServer = server
+	return app
+}
+
+func (app *App) WithInternalServer(server Server) *App {
+	app.internalServer = server
+	return app
+}
+
+func (app *App) WithWhatsApp(client *whatsapp.Client, router *whatsapp.Router) *App {
+	app.waClient = client
+	app.router = router
+	return app
+}
+
+func (app *App) WithRepository(repo *repository.DB) *App {
+	app.repo = repo
 	return app
 }
 
@@ -64,7 +78,6 @@ func (app *App) WithLog(log *slog.Logger) *App {
 
 // WithObservability allows setting up observability providers (tracing, metrics) and returns the app instance for chaining
 func (app *App) WithObservability(observability *o11.ObservabilityInst) *App {
-	// Set up OpenTelemetry providers here if needed
 	app.observability = observability
 	return app
 }
@@ -83,22 +96,41 @@ func (app *App) WithBasePath(basePath string) *App {
 
 func (app *App) Run() error {
 	// Validate required dependencies
-	if app.server == nil {
-		return fmt.Errorf("server dependency is required: use WithServer() to inject it")
+	if app.publicServer == nil || app.internalServer == nil {
+		return fmt.Errorf("server dependencies are required: use WithPublicServer() and WithInternalServer()")
+	}
+	if app.waClient == nil || app.router == nil {
+		return fmt.Errorf("whatsapp dependencies are required: use WithWhatsApp()")
+	}
+	if app.repo == nil {
+		return fmt.Errorf("repository dependency is required: use WithRepository()")
 	}
 	if app.log == nil {
-		return fmt.Errorf("logger dependency is required: use WithLog() to inject it")
+		return fmt.Errorf("logger dependency is required: use WithLog()")
 	}
 
-	// Initialize handlers and register routes before starting the server
-	if err := app.initHandlers(); err != nil {
-		return fmt.Errorf("failed to initialize handlers: %w", err)
+	// Wire handlers, routes and commands
+	if err := app.initAndWire(); err != nil {
+		return fmt.Errorf("failed to initialize: %w", err)
 	}
-	app.registerRoutes()
 
-	if err := app.server.Start(); err != nil {
-		return err
+	// Start HTTP servers
+	if err := app.publicServer.Start(); err != nil {
+		return fmt.Errorf("failed to start public server: %w", err)
 	}
+	if err := app.internalServer.Start(); err != nil {
+		return fmt.Errorf("failed to start internal server: %w", err)
+	}
+
+	// Connect to WhatsApp (login flow if needed)
+	if err := app.waClient.Connect(app.ctx, app.config.Bot.PairPhone); err != nil {
+		return fmt.Errorf("failed to connect to WhatsApp: %w", err)
+	}
+
+	app.log.Info("Application started",
+		"public_port", app.config.HttpServer.Port,
+		"internal_port", app.config.InternalServer.Port,
+		"version", app.buildInfo.Version)
 
 	// Setup signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -108,16 +140,31 @@ func (app *App) Run() error {
 	sig := <-sigChan
 	app.log.Info("Received shutdown signal", "signal", sig)
 
-	// Perform graceful shutdown with timeout
+	return app.shutdown()
+}
+
+// shutdown stops servers, waits for in-flight commands and disconnects WhatsApp
+func (app *App) shutdown() error {
 	shutdownCtx, cancel := context.WithTimeout(app.ctx, 30*time.Second)
 	defer cancel()
 
-	app.log.Info("Starting graceful server shutdown")
-	if err := app.server.Stop(shutdownCtx); err != nil {
-		app.log.Error("Error during server shutdown", "error", err)
-		return err
+	app.log.Info("Starting graceful shutdown")
+
+	var shutdownErr error
+	if err := app.publicServer.Stop(shutdownCtx); err != nil {
+		app.log.Error("Error during public server shutdown", "error", err)
+		shutdownErr = err
+	}
+	if err := app.internalServer.Stop(shutdownCtx); err != nil {
+		app.log.Error("Error during internal server shutdown", "error", err)
+		shutdownErr = err
 	}
 
-	app.log.Info("Server shut down gracefully")
-	return nil
+	// Wait for in-flight WhatsApp commands, then disconnect
+	app.log.Info("Waiting for in-flight commands to finish")
+	app.router.Wait()
+	app.waClient.Disconnect()
+
+	app.log.Info("Application shut down gracefully")
+	return shutdownErr
 }
