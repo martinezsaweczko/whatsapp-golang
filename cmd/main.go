@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"time"
 
@@ -26,6 +27,12 @@ var (
 )
 
 func main() {
+	// Health check mode for container HEALTHCHECK (slim images have no curl):
+	// whatsappbot -health-check [port]
+	if len(os.Args) > 1 && os.Args[1] == "-health-check" {
+		os.Exit(healthCheck())
+	}
+
 	// Create context for the application
 	ctx := context.Background()
 
@@ -141,4 +148,26 @@ func main() {
 	}
 
 	log.Info("Application terminated")
+}
+
+// healthCheck queries the internal server health endpoint and returns 0 on success
+func healthCheck() int {
+	port := "9000"
+	if len(os.Args) > 2 {
+		port = os.Args[2]
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://localhost:" + port + "/api/v1/health")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "health check failed: %v\n", err)
+		return 1
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "health check returned status %d\n", resp.StatusCode)
+		return 1
+	}
+	return 0
 }
