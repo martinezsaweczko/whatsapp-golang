@@ -1,13 +1,24 @@
 package services
 
 import (
+	"crypto/rand"
 	"crypto/rsa"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
+
+// randomHex returns n random bytes hex-encoded
+func randomHex(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
 
 // Claims represents the JWT claims
 type Claims struct {
@@ -37,18 +48,54 @@ func NewJWTService(privateKey *rsa.PrivateKey, publicKey *rsa.PublicKey, issuer 
 
 // GenerateToken generates a new JWT token with the given subject
 func (s *JWTService) GenerateToken(subject string) (string, error) {
+	return s.GenerateTokenWithExpiry(subject, s.expiryTime)
+}
+
+// GenerateTokenWithExpiry generates a new JWT token with a custom expiry time
+func (s *JWTService) GenerateTokenWithExpiry(subject string, expiry time.Duration) (string, error) {
 	if subject == "" {
 		return "", fmt.Errorf("subject cannot be empty")
 	}
 
 	now := time.Now()
-	expiryTime := now.Add(s.expiryTime)
 
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(expiryTime),
+			ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			Issuer:    s.issuer,
+		},
+		Subject: subject,
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	tokenString, err := token.SignedString(s.privateKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign token: %w", err)
+	}
+
+	return tokenString, nil
+}
+
+// GenerateSubscriptionToken generates a JWT token with a unique ID (jti claim),
+// used for subscription download links (48h validity)
+func (s *JWTService) GenerateSubscriptionToken(subject string, expiry time.Duration) (string, error) {
+	if subject == "" {
+		return "", fmt.Errorf("subject cannot be empty")
+	}
+
+	now := time.Now()
+	jti, err := randomHex(6)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate token id: %w", err)
+	}
+
+	claims := &Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			Issuer:    s.issuer,
+			ID:        jti,
 		},
 		Subject: subject,
 	}
