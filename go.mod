@@ -8,6 +8,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/prometheus/client_golang v1.23.2
+	github.com/sashabaranov/go-openai v1.42.1
 	go.mau.fi/whatsmeow v0.0.0-20260925162019-b3832c2bd1d1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
 	go.opentelemetry.io/otel v1.46.0
