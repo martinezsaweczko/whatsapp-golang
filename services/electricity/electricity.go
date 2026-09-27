@@ -20,6 +20,7 @@ import (
 type Service struct {
 	client   *http.Client
 	apiKey   string
+	baseURL  string // Overridable for tests; defaults to the ESIOS API
 	cacheDir string
 	log      *slog.Logger
 	tracer   trace.Tracer
@@ -42,6 +43,7 @@ func New(client *http.Client, apiKey, cacheDir string, log *slog.Logger, tp trac
 	return &Service{
 		client:      client,
 		apiKey:      apiKey,
+		baseURL:     apiBaseURL,
 		cacheDir:    cacheDir,
 		log:         log,
 		tracer:      tp.Tracer("services/electricity"),

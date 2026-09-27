@@ -157,6 +157,12 @@ func (s *Service) Notify(ctx context.Context, sender whatsapp.Sender, category, 
 
 	var errs []string
 	for _, user := range users {
+		// Stored subscribers must be full JIDs (user@server)
+		if !strings.Contains(user, "@") {
+			s.log.Error("Invalid subscriber JID, skipping", "user", user)
+			errs = append(errs, "invalid JID: "+user)
+			continue
+		}
 		jid, err := types.ParseJID(user)
 		if err != nil {
 			s.log.Error("Invalid subscriber JID, skipping", "user", user, "error", err)

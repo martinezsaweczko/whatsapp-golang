@@ -40,7 +40,7 @@ func (s *Service) fetch(ctx context.Context, startDate, endDate time.Time) ([]Pr
 		"end_date":   {endDate.UTC().Format(time.RFC3339)},
 	}
 
-	reqURL := apiBaseURL + indicatorID + "?" + params.Encode()
+	reqURL := s.baseURL + indicatorID + "?" + params.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build ESIOS request: %w", err)
