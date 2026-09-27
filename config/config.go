@@ -7,10 +7,12 @@ import (
 )
 
 type Config struct {
-	HttpServer ServerConfig
-	Log        LogConfig
-	O11        O11Config
-	JWT        JWTConfig
+	HttpServer     ServerConfig // Public file server (JWT protected downloads)
+	InternalServer ServerConfig // Internal API server (subscription trigger, metrics)
+	Log            LogConfig
+	O11            O11Config
+	JWT            JWTConfig
+	Bot            BotConfig
 }
 
 type ConfigError struct {
@@ -33,21 +35,22 @@ func (ce *ConfigError) Error() string {
 	return fmt.Sprintf("%s:\n  - %s", ce.Message, strings.Join(errMessages, "\n  - "))
 }
 
-// Load configuration from file or environment variables
-// Parse for stdin
+// Load configuration from command-line flags
 // Return the configuration struct
 func LoadConfig() (*Config, *ConfigError) {
 	config := &Config{}
-	// Initialize HttpServerConfig fields
-	config.HttpServer = ServerConfig{}
 	listErrors := []error{}
 
-	// Define command-line flags for HTTP server configuration
+	// Define command-line flags for HTTP server configuration (public file server)
 	var serverAddress string
 	var serverPort int
 	var serverTimeout int
 	var serverReadTimeout int
 	var serverWriteTimeout int
+
+	// Define command-line flags for internal HTTP server configuration
+	var internalAddress string
+	var internalPort int
 
 	// Define command-line flags for LOG configuration
 	var logLevel string
@@ -56,29 +59,69 @@ func LoadConfig() (*Config, *ConfigError) {
 	// Define command-line flags for O11 configuration
 	var o11TracerEndpoint string
 	var o11PrometheusPath string
+	var o11Environment string
 
 	// Define command-line flags for JWT configuration
 	var jwtPublicKeyPath string
 	var jwtPrivateKeyPath string
 
-	// Flags server
-	flag.StringVar(&serverAddress, "http-address", "localhost", "HTTP server address")
-	flag.IntVar(&serverPort, "http-port", 8080, "HTTP server port")
+	// Define command-line flags for Bot configuration
+	var botNumber, mentionedBotNumber, toNotification, trollNumbers string
+	var nacionalFolder, internacionalFolder, magazineFolder string
+	var retentionNacional, retentionInternacional, retentionMagazine int
+	var urlServer, dbPath, sessionDBPath string
+	var openAIAPIKey, openAIModel string
+	var weatherAPIKey, weatherAPIURL string
+	var weatherNoteWords int
+	var stabilityAPIKey, esiosAPIKey string
+	var commandTimeout int
+
+	// Flags public file server
+	flag.StringVar(&serverAddress, "http-address", "0.0.0.0", "Public file server address")
+	flag.IntVar(&serverPort, "http-port", 46564, "Public file server port")
 	flag.IntVar(&serverTimeout, "http-timeout", 30, "HTTP server timeout in seconds")
 	flag.IntVar(&serverReadTimeout, "http-read-timeout", 10, "HTTP server read timeout in seconds")
-	flag.IntVar(&serverWriteTimeout, "http-write-timeout", 10, "HTTP server write timeout in seconds")
+	flag.IntVar(&serverWriteTimeout, "http-write-timeout", 30, "HTTP server write timeout in seconds")
+
+	// Flags internal server
+	flag.StringVar(&internalAddress, "internal-address", "0.0.0.0", "Internal API server address")
+	flag.IntVar(&internalPort, "internal-port", 9000, "Internal API server port")
 
 	// Flags log
 	flag.StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
 	flag.StringVar(&logFilePath, "log-file-path", "stdout", "Log file path (default is stdout)")
 
-	//O11 flags
+	// O11 flags
 	flag.StringVar(&o11TracerEndpoint, "o11-tracer-endpoint", "", "OpenTelemetry tracer endpoint (gRPC, without http:// or https://)")
-	flag.StringVar(&o11PrometheusPath, "o11-prometheus-path", "", "OpenTelemetry Prometheus metrics path (default is /metrics)")
+	flag.StringVar(&o11PrometheusPath, "o11-prometheus-path", "/metrics", "OpenTelemetry Prometheus metrics path")
+	flag.StringVar(&o11Environment, "o11-environment", "dev", "Deployment environment reported in telemetry (dev, prod)")
 
 	// JWT flags
 	flag.StringVar(&jwtPublicKeyPath, "jwt-public-key-path", "keys/public.pem", "Path to JWT public key file")
 	flag.StringVar(&jwtPrivateKeyPath, "jwt-private-key-path", "keys/private.pem", "Path to JWT private key file")
+
+	// Bot flags
+	flag.StringVar(&botNumber, "bot-number", "", "Bot phone number (e.g. 34936674253)")
+	flag.StringVar(&mentionedBotNumber, "bot-mentioned-number", "", "Bot JID in @lid form for group mentions")
+	flag.StringVar(&toNotification, "bot-notification-jid", "", "JID that receives restart notifications")
+	flag.StringVar(&trollNumbers, "bot-troll-numbers", "", "Comma separated JIDs that get the troll AI personality")
+	flag.StringVar(&nacionalFolder, "nacional-folder", "/tmp/periodico/nacional/", "National newspapers folder")
+	flag.IntVar(&retentionNacional, "retention-nacional", 24, "National newspapers retention in hours")
+	flag.StringVar(&internacionalFolder, "internacional-folder", "/tmp/periodico/internacional/", "International newspapers folder")
+	flag.IntVar(&retentionInternacional, "retention-internacional", 169, "International newspapers retention in hours")
+	flag.StringVar(&magazineFolder, "magazine-folder", "/tmp/periodico/magazine/", "Magazines folder")
+	flag.IntVar(&retentionMagazine, "retention-magazine", 720, "Magazines retention in hours")
+	flag.StringVar(&urlServer, "url-server", "localhost:46564", "Public base URL (host:port) for download links")
+	flag.StringVar(&dbPath, "db-path", "/tmp/db.sqlite", "Application database path")
+	flag.StringVar(&sessionDBPath, "session-db-path", "/tmp/session.db", "WhatsApp session database path")
+	flag.StringVar(&openAIAPIKey, "openai-api-key", "", "OpenAI API key")
+	flag.StringVar(&openAIModel, "openai-model", "gpt-4o-mini", "OpenAI model")
+	flag.StringVar(&weatherAPIKey, "weather-api-key", "", "OpenWeatherMap API key")
+	flag.StringVar(&weatherAPIURL, "weather-api-url", "https://api.openweathermap.org/data/2.5/weather", "OpenWeatherMap API URL")
+	flag.IntVar(&weatherNoteWords, "weather-note-words", 200, "Max words in the weather note")
+	flag.StringVar(&stabilityAPIKey, "stability-api-key", "", "Stability AI API key")
+	flag.StringVar(&esiosAPIKey, "esios-api-key", "", "ESIOS (REE) API token")
+	flag.IntVar(&commandTimeout, "command-timeout", 60, "Max execution time in seconds for a WhatsApp command")
 
 	flag.Parse()
 
@@ -89,6 +132,18 @@ func LoadConfig() (*Config, *ConfigError) {
 	config.HttpServer.WriteTimeout = serverWriteTimeout
 
 	if err := config.HttpServer.validate(); err != nil {
+		listErrors = append(listErrors, err)
+	}
+
+	config.InternalServer = ServerConfig{
+		Address:      internalAddress,
+		Port:         internalPort,
+		Timeout:      serverTimeout,
+		ReadTimeout:  serverReadTimeout,
+		WriteTimeout: serverWriteTimeout,
+	}
+
+	if err := config.InternalServer.validate(); err != nil {
 		listErrors = append(listErrors, err)
 	}
 
@@ -103,6 +158,7 @@ func LoadConfig() (*Config, *ConfigError) {
 	o11Conf := &O11Config{
 		TracerEndpoint: o11TracerEndpoint,
 		PrometheusPath: o11PrometheusPath,
+		Environment:    o11Environment,
 	}
 
 	config.O11 = *o11Conf
@@ -121,9 +177,53 @@ func LoadConfig() (*Config, *ConfigError) {
 		listErrors = append(listErrors, err)
 	}
 
+	// Set Bot configuration
+	config.Bot = BotConfig{
+		BotNumber:              botNumber,
+		MentionedBotNumber:     mentionedBotNumber,
+		ToNotification:         toNotification,
+		TrollNumbers:           splitAndTrim(trollNumbers),
+		NacionalFolder:         nacionalFolder,
+		RetentionNacional:      retentionNacional,
+		InternacionalFolder:    internacionalFolder,
+		RetentionInternacional: retentionInternacional,
+		MagazineFolder:         magazineFolder,
+		RetentionMagazine:      retentionMagazine,
+		URLServer:              urlServer,
+		DBPath:                 dbPath,
+		SessionDBPath:          sessionDBPath,
+		OpenAIAPIKey:           openAIAPIKey,
+		OpenAIModel:            openAIModel,
+		WeatherAPIKey:          weatherAPIKey,
+		WeatherAPIURL:          weatherAPIURL,
+		WeatherNoteWords:       weatherNoteWords,
+		StabilityAPIKey:        stabilityAPIKey,
+		EsiosAPIKey:            esiosAPIKey,
+		CommandTimeout:         commandTimeout,
+	}
+
+	if err := config.Bot.validate(); err != nil {
+		listErrors = append(listErrors, err)
+	}
+
 	if len(listErrors) > 0 {
 		return nil, &ConfigError{Message: "Invalid configuration", AppendedErrors: listErrors}
 	}
 
 	return config, nil
+}
+
+// splitAndTrim splits a comma separated list and trims whitespace, dropping empty entries
+func splitAndTrim(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }

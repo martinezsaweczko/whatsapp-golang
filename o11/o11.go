@@ -16,7 +16,9 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
 type ObservabilityInst struct {
@@ -26,7 +28,7 @@ type ObservabilityInst struct {
 
 // SetupOTelSDK bootstraps the OpenTelemetry pipeline.
 // If it does not return an error, make sure to call shutdown for proper cleanup.
-func SetupOTelSDK(ctx context.Context, config *config.O11Config) (func(context.Context) error, ObservabilityInst, error) {
+func SetupOTelSDK(ctx context.Context, config *config.O11Config, serviceName, serviceVersion string) (func(context.Context) error, ObservabilityInst, error) {
 	var shutdownFuncs []func(context.Context) error
 	var err error
 
@@ -53,9 +55,12 @@ func SetupOTelSDK(ctx context.Context, config *config.O11Config) (func(context.C
 	prop := newPropagator()
 	otel.SetTextMapPropagator(prop)
 
+	// Resource identifying this service in Grafana/Tempo
+	res := newResource(serviceName, serviceVersion, config.Environment)
+
 	// Set up trace provider.
 	if config.TracerEndpoint != "" {
-		tracerProvider, err := newTracerProvider(ctx, config.TracerEndpoint)
+		tracerProvider, err := newTracerProvider(ctx, config.TracerEndpoint, res)
 		if err != nil {
 			handleErr(err)
 			return shutdown, observabilityInst, err
@@ -72,7 +77,7 @@ func SetupOTelSDK(ctx context.Context, config *config.O11Config) (func(context.C
 	// Set up meter provider.
 	// If no Prometheus path is provided, we can skip setting up the meter provider, as the application currently doesn't use it for anything else.
 	if config.PrometheusPath != "" {
-		meterProvider, err := newMeterProvider()
+		meterProvider, err := newMeterProvider(res)
 		if err != nil {
 			handleErr(err)
 			return shutdown, observabilityInst, err
@@ -108,12 +113,25 @@ func newPropagator() propagation.TextMapPropagator {
 	)
 }
 
-func newTracerProvider(ctx context.Context, tracerEndpoint string) (*trace.TracerProvider, error) {
-	// traceExporter, err := stdouttrace.New(stdouttrace.WithPrettyPrint())
-	// if err != nil {
-	// 	return nil, err
-	// }
+// newResource builds the OTel resource identifying this service in Tempo/Grafana
+func newResource(serviceName, serviceVersion, environment string) *resource.Resource {
+	res, err := resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName(serviceName),
+			semconv.ServiceVersion(serviceVersion),
+			semconv.DeploymentEnvironmentName(environment),
+		),
+	)
+	if err != nil {
+		// Fallback to default resource; never fail the whole telemetry setup for this
+		return resource.Default()
+	}
+	return res
+}
 
+func newTracerProvider(ctx context.Context, tracerEndpoint string, res *resource.Resource) (*trace.TracerProvider, error) {
 	traceExporter, err := otlptracegrpc.New(ctx,
 		otlptracegrpc.WithEndpoint(tracerEndpoint),
 		otlptracegrpc.WithInsecure(),
@@ -123,6 +141,9 @@ func newTracerProvider(ctx context.Context, tracerEndpoint string) (*trace.Trace
 	}
 
 	tracerProvider := trace.NewTracerProvider(
+		trace.WithResource(res),
+		// Low-traffic bot: sample everything when tracing is enabled
+		trace.WithSampler(trace.ParentBased(trace.AlwaysSample())),
 		trace.WithBatcher(traceExporter,
 			// Default is 5s. Set to 1s for demonstrative purposes.
 			trace.WithBatchTimeout(time.Second)),
@@ -130,12 +151,8 @@ func newTracerProvider(ctx context.Context, tracerEndpoint string) (*trace.Trace
 	return tracerProvider, nil
 }
 
-func newMeterProvider() (*sdkmetric.MeterProvider, error) {
-	// metricExporter, err := stdoutmetric.New(stdoutmetric.WithPrettyPrint())
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// Meter exporter to PromQL
+func newMeterProvider(res *resource.Resource) (*sdkmetric.MeterProvider, error) {
+	// Meter exporter to Prometheus.
 	// The exporter embeds a default OpenTelemetry Reader and
 	// implements prometheus.Collector, allowing it to be used as
 	// both a Reader and Collector.
@@ -144,7 +161,10 @@ func newMeterProvider() (*sdkmetric.MeterProvider, error) {
 		return nil, err
 	}
 
-	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(exporter))
+	meterProvider := sdkmetric.NewMeterProvider(
+		sdkmetric.WithResource(res),
+		sdkmetric.WithReader(exporter),
+	)
 	return meterProvider, nil
 }
 

@@ -64,7 +64,7 @@ func main() {
 	log.Info("Configuration loaded", "http_address", httpConf.Addr, "http_port", httpConf.Port, "http_timeout", httpConf.Timeout, "http_read_timeout", httpConf.ReadTimeout, "http_write_timeout", httpConf.WriteTimeout, "log_level", cfg.Log.Level, "log_file_path", cfg.Log.FilePath)
 
 	// Set up OpenTelemetry providers.
-	otelShutdown, observabilityInst, otelErr := o11.SetupOTelSDK(ctx, &cfg.O11)
+	otelShutdown, observabilityInst, otelErr := o11.SetupOTelSDK(ctx, &cfg.O11, "whatsappbot-golang", version)
 	if otelErr != nil {
 		log.Error("OpenTelemetry setup error", "error", otelErr)
 		os.Exit(1)

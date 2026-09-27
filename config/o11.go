@@ -5,6 +5,7 @@ import "fmt"
 type O11Config struct {
 	TracerEndpoint string
 	PrometheusPath string
+	Environment    string
 }
 
 // Validate checks if the o11 configuration is valid.
