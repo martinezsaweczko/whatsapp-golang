@@ -50,7 +50,7 @@ func messageEvent(body string, mentioned ...string) *events.Message {
 			ID:       "MSGID1",
 			PushName: "David",
 		},
-		Message:   msg,
+		Message:    msg,
 		RawMessage: msg,
 	}
 }

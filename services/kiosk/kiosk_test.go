@@ -70,9 +70,9 @@ func writeFileWithAge(t *testing.T, dir, name string, age time.Duration) {
 
 func TestListFiltersByRetentionAndSortsNewestFirst(t *testing.T) {
 	dir := t.TempDir()
-	writeFileWithAge(t, dir, "old.pdf", 25*time.Hour)     // older than retention -> filtered
-	writeFileWithAge(t, dir, "middle.pdf", 5*time.Hour)   // 2nd newest
-	writeFileWithAge(t, dir, "newest.pdf", 1*time.Hour)   // newest first
+	writeFileWithAge(t, dir, "old.pdf", 25*time.Hour)      // older than retention -> filtered
+	writeFileWithAge(t, dir, "middle.pdf", 5*time.Hour)    // 2nd newest
+	writeFileWithAge(t, dir, "newest.pdf", 1*time.Hour)    // newest first
 	writeFileWithAge(t, dir, "boundary.pdf", 23*time.Hour) // within retention
 
 	svc, _, _ := newTestService(t, dir, 24*time.Hour)

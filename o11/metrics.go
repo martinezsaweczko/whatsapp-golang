@@ -78,8 +78,8 @@ func NewCommandMetrics(mp metric.MeterProvider) (*CommandMetrics, error) {
 
 // RepoMetrics holds the instruments for repository (database) operations
 type RepoMetrics struct {
-	QueriesTotal   metric.Int64Counter
-	QueryDuration  metric.Float64Histogram
+	QueriesTotal  metric.Int64Counter
+	QueryDuration metric.Float64Histogram
 }
 
 func NewRepoMetrics(mp metric.MeterProvider) (*RepoMetrics, error) {

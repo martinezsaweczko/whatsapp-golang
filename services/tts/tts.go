@@ -23,9 +23,9 @@ const endpoint = "https://translate.google.com/translate_tts"
 
 // Service provides text-to-speech synthesis
 type Service struct {
-	client    *http.Client
-	log       *slog.Logger
-	tracer    trace.Tracer
+	client     *http.Client
+	log        *slog.Logger
+	tracer     trace.Tracer
 	synthTotal metric.Int64Counter
 }
 

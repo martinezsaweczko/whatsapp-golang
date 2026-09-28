@@ -23,9 +23,9 @@ type FileUsageReporter interface {
 
 // FileServerHandlerConfig holds dependencies for the file server handler
 type FileServerHandlerConfig struct {
-	Log  *slog.Logger
-	TP   trace.TracerProvider
-	MP   metric.MeterProvider
+	Log   *slog.Logger
+	TP    trace.TracerProvider
+	MP    metric.MeterProvider
 	Usage FileUsageReporter
 	// Categories maps a URL prefix ("nacional_folder") to a filesystem directory
 	Categories map[string]string
