@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"strings"
+
+	"go.mau.fi/whatsmeow/types"
 )
 
 // BotConfig holds all WhatsApp bot specific configuration
@@ -25,7 +27,9 @@ type BotConfig struct {
 	URLServer string
 
 	// Storage
-	DBPath        string // Application database (subscriptions, jwt, usage)
+	DBDriver      string // Application database driver (sqlite or mysql)
+	DBPath        string // Application database path (sqlite only)
+	DBDSN         string // Application database DSN (overrides db-path; required for mysql)
 	SessionDBPath string // whatsmeow session store
 
 	// External APIs
@@ -46,6 +50,13 @@ type BotConfig struct {
 
 	// ElectricityCacheDir is where the kwh-*.json/png cache files are stored
 	ElectricityCacheDir string
+
+	// PDFChannelJID is the WhatsApp group/channel JID that receives automatic
+	// PDF downloads. Empty means the feature is disabled.
+	PDFChannelJID string
+
+	// PDFCategory is the kiosk category where downloaded PDFs are saved.
+	PDFCategory string
 }
 
 func (b *BotConfig) validate() error {
@@ -84,8 +95,14 @@ func (b *BotConfig) validate() error {
 	if b.URLServer == "" {
 		errs = append(errs, "url server cannot be empty")
 	}
-	if b.DBPath == "" {
-		errs = append(errs, "db path cannot be empty")
+	if b.DBDriver != "sqlite" && b.DBDriver != "mysql" {
+		errs = append(errs, "db driver must be sqlite or mysql")
+	}
+	if b.DBDriver == "mysql" && b.DBDSN == "" {
+		errs = append(errs, "db dsn is required for mysql")
+	}
+	if b.DBDriver == "sqlite" && b.DBDSN == "" && b.DBPath == "" {
+		errs = append(errs, "db path or db dsn must be provided for sqlite")
 	}
 	if b.SessionDBPath == "" {
 		errs = append(errs, "session db path cannot be empty")
@@ -94,8 +111,27 @@ func (b *BotConfig) validate() error {
 		errs = append(errs, "command timeout must be positive")
 	}
 
+	if b.PDFChannelJID != "" {
+		jid, err := types.ParseJID(b.PDFChannelJID)
+		if err != nil || jid.User == "" || jid.Server == "" {
+			errs = append(errs, fmt.Sprintf("pdf channel JID %q is invalid", b.PDFChannelJID))
+		}
+		if strings.TrimSpace(b.PDFCategory) == "" {
+			errs = append(errs, "pdf category cannot be empty when pdf channel JID is set")
+		}
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("bot configuration invalid: %s", strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+// DatabaseDSN returns the effective database DSN.
+// If DBDSN is set it is used directly; otherwise a sqlite DSN is built from DBPath.
+func (b *BotConfig) DatabaseDSN() string {
+	if b.DBDSN != "" {
+		return b.DBDSN
+	}
+	return fmt.Sprintf("file:%s?_foreign_keys=on", b.DBPath)
 }

@@ -1,0 +1,34 @@
+-- +goose Up
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subscription_text TEXT,
+    user TEXT
+);
+
+CREATE TABLE IF NOT EXISTS jwt_used (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    jwt TEXT,
+    created_date DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS jwt_index ON jwt_used (jwt);
+
+CREATE TABLE IF NOT EXISTS file_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file TEXT,
+    result TEXT,
+    created_date DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS user_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user TEXT,
+    file TEXT,
+    created_date DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- +goose Down
+DROP TABLE IF EXISTS subscriptions;
+DROP TABLE IF EXISTS jwt_used;
+DROP TABLE IF EXISTS file_usage;
+DROP TABLE IF EXISTS user_usage;

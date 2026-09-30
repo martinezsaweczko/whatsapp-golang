@@ -69,13 +69,14 @@ func LoadConfig() (*Config, *ConfigError) {
 	var botNumber, mentionedBotNumber, toNotification, trollNumbers string
 	var nacionalFolder, internacionalFolder, magazineFolder string
 	var retentionNacional, retentionInternacional, retentionMagazine int
-	var urlServer, dbPath, sessionDBPath string
+	var urlServer, dbPath, dbDSN, dbDriver, sessionDBPath string
 	var openAIAPIKey, openAIModel string
 	var weatherAPIKey, weatherAPIURL string
 	var weatherNoteWords int
 	var stabilityAPIKey, esiosAPIKey string
 	var commandTimeout int
 	var pairPhone, electricityCacheDir string
+	var pdfChannelJID, pdfCategory string
 
 	// Flags public file server
 	flag.StringVar(&serverAddress, "http-address", "0.0.0.0", "Public file server address")
@@ -113,7 +114,9 @@ func LoadConfig() (*Config, *ConfigError) {
 	flag.StringVar(&magazineFolder, "magazine-folder", "/tmp/periodico/magazine/", "Magazines folder")
 	flag.IntVar(&retentionMagazine, "retention-magazine", 720, "Magazines retention in hours")
 	flag.StringVar(&urlServer, "url-server", "localhost:46564", "Public base URL (host:port) for download links")
-	flag.StringVar(&dbPath, "db-path", "/tmp/db.sqlite", "Application database path")
+	flag.StringVar(&dbDriver, "db-driver", "sqlite", "Application database driver (sqlite or mysql)")
+	flag.StringVar(&dbPath, "db-path", "/tmp/db.sqlite", "Application database path (sqlite only)")
+	flag.StringVar(&dbDSN, "db-dsn", "", "Application database DSN (overrides db-path; required for mysql)")
 	flag.StringVar(&sessionDBPath, "session-db-path", "/tmp/session.db", "WhatsApp session database path")
 	flag.StringVar(&openAIAPIKey, "openai-api-key", "", "OpenAI API key")
 	flag.StringVar(&openAIModel, "openai-model", "gpt-4o-mini", "OpenAI model")
@@ -125,6 +128,8 @@ func LoadConfig() (*Config, *ConfigError) {
 	flag.IntVar(&commandTimeout, "command-timeout", 60, "Max execution time in seconds for a WhatsApp command")
 	flag.StringVar(&pairPhone, "bot-pair-phone", "", "Phone number to pair with a code instead of QR (first login only)")
 	flag.StringVar(&electricityCacheDir, "electricity-cache-dir", "/tmp", "Directory for electricity price cache files")
+	flag.StringVar(&pdfChannelJID, "pdf-channel-jid", "", "WhatsApp group/channel JID that receives automatic PDF downloads")
+	flag.StringVar(&pdfCategory, "pdf-category", "nacional", "Kiosk category where downloaded PDFs are saved")
 
 	flag.Parse()
 
@@ -194,6 +199,8 @@ func LoadConfig() (*Config, *ConfigError) {
 		RetentionMagazine:      retentionMagazine,
 		URLServer:              urlServer,
 		DBPath:                 dbPath,
+		DBDriver:               dbDriver,
+		DBDSN:                  dbDSN,
 		SessionDBPath:          sessionDBPath,
 		OpenAIAPIKey:           openAIAPIKey,
 		OpenAIModel:            openAIModel,
@@ -205,6 +212,8 @@ func LoadConfig() (*Config, *ConfigError) {
 		CommandTimeout:         commandTimeout,
 		PairPhone:              pairPhone,
 		ElectricityCacheDir:    electricityCacheDir,
+		PDFChannelJID:          pdfChannelJID,
+		PDFCategory:            pdfCategory,
 	}
 
 	if err := config.Bot.validate(); err != nil {

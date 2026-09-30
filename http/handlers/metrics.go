@@ -37,6 +37,16 @@ func (m *MetricsHandlerConfig) NewMetricsHandler() *MetricsHandler {
 	return metricsHandler
 }
 
+// Prometheus metrics endpoint.
+//
+//	@Summary      Prometheus metrics
+//	@Description  Exposes Prometheus-compatible metrics.
+//	@Tags         System
+//	@Produce      plain
+//	@Success      200 {string} string "Prometheus metrics text"
+//	@Router       /metrics [get]
+func swaggerMetricsDocs() {}
+
 // Register the routes for the metrics handler
 func (m *MetricsHandler) RegisterRoutes(router Router, handler http.Handler, middlewares ...middleware.Middleware) {
 	// Register the metrics handler route

@@ -30,14 +30,19 @@ o11/               OTel setup, metrics factories, trace-aware slog handler
 
 HTTP servers:
 - **Public** (`-http-port`, default 46564): `GET /{nacional,internacional,magazine}_folder/{file}?access_token=...` — JWT + replay protection
-- **Internal** (`-internal-port`, default 9000): `POST /api/v1/file` (subscription trigger), `GET /api/v1/health`, `GET /api/v1/version`, `GET /metrics`
+- **Internal** (`-internal-port`, default 9000): `POST /api/v1/file` (subscription trigger), `POST /api/v1/notifications` (send WhatsApp message), `GET /api/v1/whatsapp/groups`, `GET /api/v1/whatsapp/groups/{jid}/participants`, `GET /api/v1/health`, `GET /api/v1/version`, `GET /metrics`
 
 ## Build & run
 
 ```bash
-make keys        # generate RSA keys for JWT (once)
-make build       # vet + fmt + tidy + build -> build/main
-make test        # go test -race ./...
+make keys              # generate RSA keys for JWT (once)
+make swagger           # regenerate Swagger docs from Go annotations
+make build             # vet + fmt + tidy + swagger check + build -> build/main
+make binary            # regenerate Swagger docs and build without checks or key generation
+make test              # go test -race ./...
+make check-swagger     # verify generated Swagger docs are up to date
+make migrate           # run goose migrations against local SQLite (default)
+make migrate-mysql MYSQL_DSN="user:pass@tcp(localhost:3306)/whatsappbot?parseTime=true"  # run MySQL migrations
 ```
 
 Run (minimal flags):
@@ -66,6 +71,8 @@ First login shows a QR code in the terminal (or use `-bot-pair-phone 34XXXXXXXXX
 | `-bot-notification-jid` | | JID that receives restart notifications |
 | `-bot-troll-numbers` | | Comma-separated JIDs that get the troll AI |
 | `-bot-pair-phone` | | Request pairing code instead of QR (first login) |
+| `-pdf-channel-jid` | | WhatsApp group/channel JID monitored for automatic PDF downloads |
+| `-pdf-category` | `nacional` | Kiosk category where downloaded PDFs are saved |
 | `-{nacional,internacional,magazine}-folder` | `/tmp/periodico/...` | Kiosk folders |
 | `-retention-{nacional,internacional,magazine}` | `24 / 169 / 720` | Retention (hours) |
 | `-url-server` | `localhost:46564` | Public host:port for download links |
@@ -80,6 +87,65 @@ First login shows a QR code in the terminal (or use `-bot-pair-phone 34XXXXXXXXX
 | `-o11-environment` | `dev` | Environment tag in telemetry |
 
 Full list: `./build/main -h`
+
+## Database
+
+The application database (subscriptions, JWT usage, file/user usage) supports SQLite (default) and MySQL.
+
+### SQLite (default)
+
+```bash
+./build/main ... -db-driver sqlite -db-path /tmp/db.sqlite ...
+```
+
+Migrations are embedded and run automatically on startup. You can also run them manually:
+
+```bash
+make migrate                    # uses /tmp/db.sqlite by default
+make migrate DB_DSN=/data/db.sqlite
+```
+
+### MySQL
+
+```bash
+./build/main ... \
+  -db-driver mysql \
+  -db-dsn "user:pass@tcp(localhost:3306)/whatsappbot?parseTime=true" \
+  ...
+```
+
+Run migrations manually:
+
+```bash
+make migrate-mysql MYSQL_DSN="user:pass@tcp(localhost:3306)/whatsappbot?parseTime=true"
+```
+
+Note: the WhatsApp session store (`-session-db-path`) still uses SQLite because whatsmeow only supports SQLite and Postgres.
+
+## API documentation
+
+Swagger UI is served on the **internal server** at `/api/v1/docs`. The spec is generated automatically from Go annotations using [swaggo/swag](https://github.com/swaggo/swag):
+
+```bash
+make swagger           # regenerate docs from source annotations
+# or open http://localhost:9000/api/v1/docs in a browser
+```
+
+The UI groups the endpoints as:
+
+- **System**: health, version, metrics
+- **Quiosk**: subscription trigger (`/api/v1/file`) and JWT-protected kiosk downloads
+- **Whatsapp**: send WhatsApp message (`/api/v1/notifications`), list groups (`/api/v1/whatsapp/groups`), and list group participants (`/api/v1/whatsapp/groups/{jid}/participants`)
+
+### Send a WhatsApp notification
+
+```bash
+curl -X POST http://localhost:9000/api/v1/notifications \
+  -H 'Content-Type: application/json' \
+  -d '{"recipient":"34645568517","message":"Hello from the bot"}'
+```
+
+The `recipient` can be an E.164 phone number or a full JID such as `34645568517@c.us` or `120363420531996267@g.us`.
 
 ## Container
 
@@ -119,7 +185,7 @@ git tag v0.1.0 && git push origin v0.1.0
 
 ## Observability
 
-- **Metrics** (Prometheus, internal server): `http_server_requests_total`, `http_server_request_duration_seconds`, `whatsapp_commands_total{command,result}`, `whatsapp_command_duration_seconds`, `repo_queries_total{operation,result}`, `repo_query_duration_seconds`, `external_api_{calls_total,duration_seconds}{service,target,status}` plus business counters (`kiosk_links_generated_total`, `subscription_events_total`, `files_served_total`, `jwt_tokens_rejected_total`, `electricity_cache_total`, `ai_replies_total`, ...)
+- **Metrics** (Prometheus, internal server): `http_server_requests_total`, `http_server_request_duration_seconds`, `whatsapp_commands_total{command,result}`, `whatsapp_command_duration_seconds`, `repo_queries_total{operation,result}`, `repo_query_duration_seconds`, `external_api_{calls_total,duration_seconds}{service,target,status}` plus business counters (`kiosk_links_generated_total`, `subscription_events_total`, `files_served_total`, `jwt_tokens_rejected_total`, `electricity_cache_total`, `ai_replies_total`, `channelpdf_downloads_total`, `channelpdf_saved_total`, `channelpdf_notify_total`, ...)
 - **Traces**: OTLP gRPC to Tempo (`-o11-tracer-endpoint tempo:4317`), spans across HTTP → service → repository; exemplars link metrics to traces
 - **Logs**: slog text logs with `trace_id` / `span_id` injected per request/command
 

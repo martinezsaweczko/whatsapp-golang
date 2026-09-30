@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,7 +15,10 @@ func newTestDB(t *testing.T) *DB {
 	dbPath := filepath.Join(t.TempDir(), "test.sqlite")
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
-	db, err := New(dbPath, log)
+	db, err := New(Config{
+		Driver: "sqlite",
+		DSN:    fmt.Sprintf("file:%s?_foreign_keys=on", dbPath),
+	}, log)
 	if err != nil {
 		t.Fatalf("failed to create test DB: %v", err)
 	}

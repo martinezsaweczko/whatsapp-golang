@@ -16,6 +16,7 @@ func validBotConfig() BotConfig {
 		MagazineFolder:         "/tmp/magazine/",
 		RetentionMagazine:      720,
 		URLServer:              "localhost:46564",
+		DBDriver:               "sqlite",
 		DBPath:                 "/tmp/db.sqlite",
 		SessionDBPath:          "/tmp/session.db",
 		CommandTimeout:         60,
@@ -39,7 +40,9 @@ func TestBotConfigValidateErrors(t *testing.T) {
 		{"missing folder", func(c *BotConfig) { c.NacionalFolder = "" }},
 		{"zero retention", func(c *BotConfig) { c.RetentionMagazine = 0 }},
 		{"missing url server", func(c *BotConfig) { c.URLServer = "" }},
-		{"missing db path", func(c *BotConfig) { c.DBPath = "" }},
+		{"invalid db driver", func(c *BotConfig) { c.DBDriver = "postgres" }},
+		{"missing db path and dsn", func(c *BotConfig) { c.DBPath = ""; c.DBDSN = "" }},
+		{"mysql without dsn", func(c *BotConfig) { c.DBDriver = "mysql"; c.DBDSN = ""; c.DBPath = "" }},
 		{"missing session db", func(c *BotConfig) { c.SessionDBPath = "" }},
 		{"zero timeout", func(c *BotConfig) { c.CommandTimeout = 0 }},
 	}

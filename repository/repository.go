@@ -5,87 +5,96 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"fmt"
 	"log/slog"
 
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
+	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 )
+
+//go:embed migrations/*/*.sql
+var migrationsFS embed.FS
+
+// Config holds the database connection and migration settings.
+type Config struct {
+	Driver string // "sqlite" or "mysql"
+	DSN    string // driver-specific data source name
+}
 
 // DB provides access to the application database.
 // It implements the store interfaces consumed by the services and HTTP layers.
 type DB struct {
-	db  *sql.DB
-	log *slog.Logger
+	db      *sql.DB
+	dialect string
+	log     *slog.Logger
 }
 
-// New opens (creating if necessary) the SQLite database at dbPath and initializes the schema
-func New(dbPath string, log *slog.Logger) (*DB, error) {
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database %s: %w", dbPath, err)
+// New opens the database, runs pending migrations, and returns a repository.
+func New(cfg Config, log *slog.Logger) (*DB, error) {
+	if cfg.Driver == "" {
+		return nil, fmt.Errorf("database driver is required")
+	}
+	if cfg.DSN == "" {
+		return nil, fmt.Errorf("database DSN is required")
 	}
 
-	// SQLite does not support concurrent writers; a single connection avoids SQLITE_BUSY errors
-	db.SetMaxOpenConns(1)
+	db, err := sql.Open(cfg.Driver, cfg.DSN)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	if cfg.Driver == "sqlite" {
+		// SQLite does not support concurrent writers; a single connection avoids SQLITE_BUSY errors
+		db.SetMaxOpenConns(1)
+	}
 
 	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to connect to database %s: %w", dbPath, err)
+		db.Close()
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	d := &DB{db: db, log: log}
-	if err := d.initSchema(); err != nil {
+	d := &DB{db: db, dialect: cfg.Driver, log: log}
+	if err := d.migrate(); err != nil {
 		db.Close()
 		return nil, err
 	}
 
-	log.Info("Connected successfully to DB", "path", dbPath)
+	log.Info("Connected successfully to DB", "driver", cfg.Driver)
 	return d, nil
 }
 
-// Close closes the underlying database
+// migrate runs pending goose migrations from the embedded driver-specific directory.
+func (d *DB) migrate() error {
+	goose.SetBaseFS(migrationsFS)
+
+	var gooseDialect string
+	switch d.dialect {
+	case "mysql":
+		gooseDialect = "mysql"
+	default:
+		gooseDialect = "sqlite3"
+	}
+	if err := goose.SetDialect(gooseDialect); err != nil {
+		return fmt.Errorf("failed to set goose dialect %q: %w", gooseDialect, err)
+	}
+
+	path := "migrations/" + d.dialect
+	if err := goose.Up(d.db, path); err != nil {
+		return fmt.Errorf("failed to run migrations from %s: %w", path, err)
+	}
+	d.log.Debug("Database migrations applied", "path", path)
+	return nil
+}
+
+// Close closes the underlying database.
 func (d *DB) Close() error {
 	return d.db.Close()
 }
 
-func (d *DB) initSchema() error {
-	statements := []struct {
-		name string
-		stmt string
-	}{
-		{"subscriptions", `CREATE TABLE IF NOT EXISTS subscriptions (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			subscription_text TEXT,
-			user TEXT
-		)`},
-		{"jwt_used", `CREATE TABLE IF NOT EXISTS jwt_used (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			jwt TEXT,
-			created_date DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`},
-		{"jwt_index", `CREATE INDEX IF NOT EXISTS jwt_index ON jwt_used (jwt)`},
-		{"file_usage", `CREATE TABLE IF NOT EXISTS file_usage (
-			file TEXT,
-			result TEXT,
-			created_date DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`},
-		{"user_usage", `CREATE TABLE IF NOT EXISTS user_usage (
-			user TEXT,
-			file TEXT,
-			created_date DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`},
-	}
-
-	for _, s := range statements {
-		if _, err := d.db.Exec(s.stmt); err != nil {
-			return fmt.Errorf("error creating %s: %w", s.name, err)
-		}
-	}
-	d.log.Debug("Database schema initialized")
-	return nil
-}
-
-// SaveSubscription stores a new keyword subscription for a user
+// SaveSubscription stores a new keyword subscription for a user.
 func (d *DB) SaveSubscription(ctx context.Context, subscriptionText, user string) error {
 	_, err := d.db.ExecContext(ctx,
 		"INSERT INTO subscriptions (subscription_text, user) VALUES (?, ?)",
@@ -96,7 +105,7 @@ func (d *DB) SaveSubscription(ctx context.Context, subscriptionText, user string
 	return nil
 }
 
-// DeleteSubscription removes all subscriptions of a user
+// DeleteSubscription removes all subscriptions of a user.
 func (d *DB) DeleteSubscription(ctx context.Context, user string) error {
 	_, err := d.db.ExecContext(ctx, "DELETE FROM subscriptions WHERE user = ?", user)
 	if err != nil {
@@ -105,7 +114,7 @@ func (d *DB) DeleteSubscription(ctx context.Context, user string) error {
 	return nil
 }
 
-// ReturnSubscriptions returns all subscriptions of a user
+// ReturnSubscriptions returns all subscriptions of a user.
 func (d *DB) ReturnSubscriptions(ctx context.Context, user string) ([]model.Subscription, error) {
 	rows, err := d.db.QueryContext(ctx,
 		"SELECT id, subscription_text, user FROM subscriptions WHERE user = ?", user)
@@ -125,7 +134,7 @@ func (d *DB) ReturnSubscriptions(ctx context.Context, user string) ([]model.Subs
 	return subs, rows.Err()
 }
 
-// MatchSubscriptions returns the distinct users whose subscription text is contained in the given file name (case-insensitive)
+// MatchSubscriptions returns the distinct users whose subscription text is contained in the given file name (case-insensitive).
 func (d *DB) MatchSubscriptions(ctx context.Context, file string) ([]string, error) {
 	rows, err := d.db.QueryContext(ctx,
 		"SELECT DISTINCT user FROM subscriptions WHERE INSTR(UPPER(?), UPPER(subscription_text)) > 0", file)
@@ -145,7 +154,7 @@ func (d *DB) MatchSubscriptions(ctx context.Context, file string) ([]string, err
 	return users, rows.Err()
 }
 
-// CountTokenUses returns how many times a JWT has been used (for replay protection)
+// CountTokenUses returns how many times a JWT has been used (for replay protection).
 func (d *DB) CountTokenUses(ctx context.Context, jwt string) (int, error) {
 	var count int
 	err := d.db.QueryRowContext(ctx,
@@ -156,7 +165,7 @@ func (d *DB) CountTokenUses(ctx context.Context, jwt string) (int, error) {
 	return count, nil
 }
 
-// SaveToken records a JWT usage
+// SaveToken records a JWT usage.
 func (d *DB) SaveToken(ctx context.Context, jwt string) error {
 	_, err := d.db.ExecContext(ctx, "INSERT INTO jwt_used (jwt) VALUES (?)", jwt)
 	if err != nil {
@@ -165,17 +174,24 @@ func (d *DB) SaveToken(ctx context.Context, jwt string) error {
 	return nil
 }
 
-// CleanJWT removes JWT records older than 5 days
+// CleanJWT removes JWT records older than 5 days.
 func (d *DB) CleanJWT(ctx context.Context) error {
-	_, err := d.db.ExecContext(ctx,
-		"DELETE FROM jwt_used WHERE created_date < datetime('now', '-5 days')")
+	var stmt string
+	switch d.dialect {
+	case "mysql":
+		stmt = "DELETE FROM jwt_used WHERE created_date < NOW() - INTERVAL 5 DAY"
+	default:
+		stmt = "DELETE FROM jwt_used WHERE created_date < datetime('now', '-5 days')"
+	}
+
+	_, err := d.db.ExecContext(ctx, stmt)
 	if err != nil {
 		return fmt.Errorf("failed to clean old JWTs: %w", err)
 	}
 	return nil
 }
 
-// ReportFileUsage records an access attempt to a file with its HTTP result code
+// ReportFileUsage records an access attempt to a file with its HTTP result code.
 func (d *DB) ReportFileUsage(ctx context.Context, file string, result int) error {
 	_, err := d.db.ExecContext(ctx,
 		"INSERT INTO file_usage (file, result) VALUES (?, ?)", file, result)
@@ -185,7 +201,7 @@ func (d *DB) ReportFileUsage(ctx context.Context, file string, result int) error
 	return nil
 }
 
-// ReportUserUsage records that a user requested a download link for a file
+// ReportUserUsage records that a user requested a download link for a file.
 func (d *DB) ReportUserUsage(ctx context.Context, user, file string) error {
 	_, err := d.db.ExecContext(ctx,
 		"INSERT INTO user_usage (user, file) VALUES (?, ?)", user, file)

@@ -26,6 +26,11 @@ var (
 	appName   string
 )
 
+// @title WhatsApp Bot API
+// @version 1.0.0
+// @description HTTP API for the WhatsApp newspaper kiosk bot.
+//
+// @license.name MIT
 func main() {
 	// Health check mode for container HEALTHCHECK (slim images have no curl):
 	// whatsappbot -health-check [port]
@@ -75,7 +80,10 @@ func main() {
 	}()
 
 	// Open the application database
-	repo, repoErr := repository.New(cfg.Bot.DBPath, log)
+	repo, repoErr := repository.New(repository.Config{
+		Driver: cfg.Bot.DBDriver,
+		DSN:    cfg.Bot.DatabaseDSN(),
+	}, log)
 	if repoErr != nil {
 		log.Error("Database setup error", "error", repoErr)
 		os.Exit(1)

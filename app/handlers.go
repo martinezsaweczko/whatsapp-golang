@@ -12,12 +12,14 @@ import (
 	"github.com/martinezsaweczko/whatsappBot-golang/repository"
 	"github.com/martinezsaweczko/whatsappBot-golang/services"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/ai"
+	"github.com/martinezsaweczko/whatsappBot-golang/services/channelpdf"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/electricity"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/imagegen"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/kiosk"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/subscription"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/tts"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/weather"
+	"github.com/martinezsaweczko/whatsappBot-golang/whatsapp"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.mau.fi/whatsmeow/types"
 )
@@ -84,9 +86,11 @@ func (app *App) initAndWire() error {
 
 	fileServerCats := make(map[string]string, len(categories))
 	urlPrefixes := make(map[string]string, len(categories))
+	pdfFolders := make(map[string]string, len(categories))
 	for _, c := range categories {
 		fileServerCats[c.URLPrefix] = c.Dir
 		urlPrefixes[c.Name] = c.URLPrefix
+		pdfFolders[c.Name] = c.Dir
 	}
 
 	// ----- Services -----
@@ -98,6 +102,15 @@ func (app *App) initAndWire() error {
 	subsSvc, err := subscription.New(repo, jwtService, cfg.Bot.URLServer, urlPrefixes, log, tp, mp)
 	if err != nil {
 		return fmt.Errorf("failed to create subscription service: %w", err)
+	}
+
+	var channelpdfHandler whatsapp.ChannelMediaHandler
+	if cfg.Bot.PDFChannelJID != "" {
+		channelpdfSvc, err := channelpdf.New(cfg.Bot.PDFChannelJID, cfg.Bot.PDFCategory, pdfFolders, app.waClient, subsSvc, log, tp, mp)
+		if err != nil {
+			return fmt.Errorf("failed to create channel pdf service: %w", err)
+		}
+		channelpdfHandler = channelpdfSvc.Handler()
 	}
 
 	ttsSvc, err := tts.New(services.NewExternalClient("gtts", 30*time.Second, serviceMetrics), log, tp, mp)
@@ -188,6 +201,28 @@ func (app *App) initAndWire() error {
 	}
 	triggerHandler := triggerConf.NewSubscriptionTriggerHandler()
 
+	swaggerHandler := handlers.NewSwaggerHandler(log, app.basePath)
+
+	notificationConf := handlers.NotificationHandlerConfig{
+		Log:      log,
+		Sender:   app.waClient,
+		BasePath: app.basePath,
+	}
+	notificationHandler, err := notificationConf.NewNotificationHandler()
+	if err != nil {
+		return fmt.Errorf("failed to create notification handler: %w", err)
+	}
+
+	whatsappConf := handlers.WhatsAppHandlerConfig{
+		Log:         log,
+		GroupClient: app.waClient,
+		BasePath:    app.basePath,
+	}
+	whatsappHandler, err := whatsappConf.NewWhatsAppHandler()
+	if err != nil {
+		return fmt.Errorf("failed to create whatsapp handler: %w", err)
+	}
+
 	// ----- Routes -----
 	tracingMiddleware := middleware.TracingMiddleware()
 	metricsMiddleware := middleware.MetricsMiddleware(httpMetrics)
@@ -211,6 +246,11 @@ func (app *App) initAndWire() error {
 	}
 	triggerHandler.RegisterRoutes(app.internalServer,
 		tracingMiddleware, metricsMiddleware, loggingMiddleware)
+	swaggerHandler.RegisterRoutes(app.internalServer, loggingMiddleware)
+	notificationHandler.RegisterRoutes(app.internalServer,
+		tracingMiddleware, metricsMiddleware, loggingMiddleware)
+	whatsappHandler.RegisterRoutes(app.internalServer,
+		tracingMiddleware, metricsMiddleware, loggingMiddleware)
 
 	// ----- WhatsApp commands -----
 	for _, cmd := range kioskSvc.Commands(cfg.Bot.BotNumber, app.buildInfo.Version) {
@@ -230,6 +270,11 @@ func (app *App) initAndWire() error {
 	}
 	for _, cmd := range electricitySvc.Commands() {
 		app.router.Register(cmd.Name, cmd.Pattern, cmd.Handler)
+	}
+	if cfg.Bot.PDFChannelJID != "" {
+		if err := app.router.RegisterChannelMediaHandler(cfg.Bot.PDFChannelJID, channelpdfHandler); err != nil {
+			return fmt.Errorf("failed to register channel media handler: %w", err)
+		}
 	}
 	app.router.SetFallback(aiSvc.Fallback())
 	app.router.SetSender(app.waClient)

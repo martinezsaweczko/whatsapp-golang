@@ -10,14 +10,17 @@ import (
 // It is what command handlers and services work with; the raw whatsmeow
 // event only appears in RawMessage for quote-replies.
 type IncomingMessage struct {
-	ID            types.MessageID // Message ID (for replies/deletion)
-	Chat          types.JID       // Conversation the message was sent in
-	Sender        types.JID       // Actual author (differs from Chat in groups)
-	PushName      string          // Display name of the author ("notifyName" in the Node version)
-	Body          string          // Text content (conversation or extended text)
-	IsGroup       bool            // Whether the chat is a group
-	MentionedJIDs []string        // JIDs mentioned in the message (string form)
-	RawMessage    *waE2E.Message  // Original message, used for quote-replies
+	ID               types.MessageID // Message ID (for replies/deletion)
+	Chat             types.JID       // Conversation the message was sent in
+	Sender           types.JID       // Actual author (differs from Chat in groups)
+	PushName         string          // Display name of the author ("notifyName" in the Node version)
+	Body             string          // Text content (conversation or extended text)
+	IsGroup          bool            // Whether the chat is a group
+	MentionedJIDs    []string        // JIDs mentioned in the message (string form)
+	RawMessage       *waE2E.Message  // Original message, used for quote-replies
+	HasDocument      bool            // Whether the message carries a document
+	DocumentMIMEType string          // Document MIME type, if HasDocument is true
+	DocumentFileName string          // Document filename, if HasDocument is true
 }
 
 // NewIncomingMessage converts a whatsmeow message event into the domain type
@@ -33,6 +36,7 @@ func NewIncomingMessage(evt *events.Message) IncomingMessage {
 
 	msg.Body = extractText(evt.Message)
 	msg.MentionedJIDs = extractMentions(evt.Message)
+	msg.HasDocument, msg.DocumentMIMEType, msg.DocumentFileName = extractDocument(evt.Message)
 
 	return msg
 }
@@ -65,4 +69,16 @@ func extractMentions(m *waE2E.Message) []string {
 		return nil
 	}
 	return ctxInfo.GetMentionedJID()
+}
+
+// extractDocument returns document metadata from a message, if present.
+func extractDocument(m *waE2E.Message) (hasDoc bool, mimeType, filename string) {
+	if m == nil {
+		return false, "", ""
+	}
+	doc := m.GetDocumentMessage()
+	if doc == nil {
+		return false, "", ""
+	}
+	return true, doc.GetMimetype(), doc.GetFileName()
 }

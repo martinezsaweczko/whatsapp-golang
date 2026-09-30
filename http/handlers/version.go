@@ -69,15 +69,12 @@ func (v *VersionHandler) RegisterRoutes(router Router, middlewares ...middleware
 // Get version information
 //
 //	@Summary      Get version information
-//	@Description  Get version information
-//	@Tags         version
+//	@Description  Returns build and version metadata.
+//	@Tags         System
 //	@Accept       json
 //	@Produce      json
-//	@Success      200  {object}   model.VersionInfo
-//	@Failure      400  {object}  model.HTTPError
-//	@Failure      404  {object}  model.HTTPError
-//	@Failure      500  {object}  model.HTTPError
-//	@Router       /version [get]
+//	@Success      200  {object}  model.VersionInfo
+//	@Router       /api/v1/version [get]
 func (v *VersionHandler) getVersion(w http.ResponseWriter, r *http.Request) {
 
 	v.log.Info("Received request for version information")

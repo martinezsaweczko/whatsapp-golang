@@ -70,7 +70,19 @@ func (h *FileServerHandler) RegisterRoutes(router Router, middlewares ...middlew
 	}
 }
 
-// serveFile returns the handler for a single category
+// serveFile returns the handler for a single category.
+//
+//	@Summary      Download a kiosk file
+//	@Description  Downloads a file from the configured kiosk folder. Requires a valid JWT token passed as the access_token query parameter.
+//	@Tags         Quiosk
+//	@Param        file path string true "File name"
+//	@Param        access_token query string true "JWT token"
+//	@Success      200 {file} binary "File content"
+//	@Failure      401 {string} string "Missing or invalid JWT token"
+//	@Failure      404 {string} string "File not found"
+//	@Router       /nacional_folder/{file} [get]
+//	@Router       /internacional_folder/{file} [get]
+//	@Router       /magazine_folder/{file} [get]
 func (h *FileServerHandler) serveFile(prefix, dir string) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, span := h.tracer.Start(r.Context(), "kiosk.ServeFile",

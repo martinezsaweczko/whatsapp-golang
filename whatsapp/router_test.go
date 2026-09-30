@@ -229,7 +229,147 @@ func TestMediaTypeFor(t *testing.T) {
 		"video/mp4":       "video",
 		"application/pdf": "document",
 	}
-	for mime, _ := range cases {
+	for mime := range cases {
 		_ = mediaTypeFor(mime) // smoke test: no panic
+	}
+}
+
+func documentMessageEvent(chatJID types.JID, filename, mimeType string) *events.Message {
+	msg := &waE2E.Message{
+		DocumentMessage: &waE2E.DocumentMessage{
+			Mimetype: proto.String(mimeType),
+			FileName: proto.String(filename),
+		},
+	}
+	return &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:    chatJID,
+				Sender:  types.NewJID("34645568517", types.DefaultUserServer),
+				IsGroup: chatJID.Server == types.GroupServer,
+			},
+			ID:       "MSGID1",
+			PushName: "David",
+		},
+		Message:    msg,
+		RawMessage: msg,
+	}
+}
+
+func TestChannelMediaHandler(t *testing.T) {
+	channelJID := types.NewJID("120363420531996267", types.GroupServer)
+	router := newTestRouter(t, nil)
+
+	var calls atomic.Int32
+	if err := router.RegisterChannelMediaHandler(channelJID.String(), func(_ context.Context, _ Sender, _ IncomingMessage) error {
+		calls.Add(1)
+		return nil
+	}); err != nil {
+		t.Fatalf("failed to register channel media handler: %v", err)
+	}
+
+	router.dispatch(documentMessageEvent(channelJID, "paper.pdf", "application/pdf"))
+	waitFor(t, func() bool { return calls.Load() == 1 })
+}
+
+func TestChannelMediaRunsWithoutBody(t *testing.T) {
+	channelJID := types.NewJID("120363420531996267", types.GroupServer)
+	router := newTestRouter(t, nil)
+
+	var channelCalls, commandCalls atomic.Int32
+	if err := router.RegisterChannelMediaHandler(channelJID.String(), func(_ context.Context, _ Sender, _ IncomingMessage) error {
+		channelCalls.Add(1)
+		return nil
+	}); err != nil {
+		t.Fatalf("failed to register channel media handler: %v", err)
+	}
+	router.Register("cmd", regexp.MustCompile(`.*`), func(_ context.Context, _ Sender, _ IncomingMessage) error {
+		commandCalls.Add(1)
+		return nil
+	})
+
+	// Document message with no text body must still trigger the channel handler.
+	router.dispatch(documentMessageEvent(channelJID, "paper.pdf", "application/pdf"))
+	waitFor(t, func() bool { return channelCalls.Load() == 1 })
+
+	if commandCalls.Load() != 0 {
+		t.Error("regex command should not run for channel media messages")
+	}
+}
+
+func TestChannelMediaIgnoredForOtherJIDs(t *testing.T) {
+	channelJID := types.NewJID("120363420531996267", types.GroupServer)
+	otherJID := types.NewJID("99999", types.GroupServer)
+	router := newTestRouter(t, nil)
+
+	var calls atomic.Int32
+	if err := router.RegisterChannelMediaHandler(channelJID.String(), func(_ context.Context, _ Sender, _ IncomingMessage) error {
+		calls.Add(1)
+		return nil
+	}); err != nil {
+		t.Fatalf("failed to register channel media handler: %v", err)
+	}
+
+	router.dispatch(documentMessageEvent(otherJID, "paper.pdf", "application/pdf"))
+
+	time.Sleep(100 * time.Millisecond)
+	if calls.Load() != 0 {
+		t.Error("channel media handler should not run for a different JID")
+	}
+}
+
+func TestChannelMediaRequiresDocument(t *testing.T) {
+	channelJID := types.NewJID("120363420531996267", types.GroupServer)
+	router := newTestRouter(t, nil)
+
+	var calls atomic.Int32
+	if err := router.RegisterChannelMediaHandler(channelJID.String(), func(_ context.Context, _ Sender, _ IncomingMessage) error {
+		calls.Add(1)
+		return nil
+	}); err != nil {
+		t.Fatalf("failed to register channel media handler: %v", err)
+	}
+
+	router.dispatch(messageEvent("text without document"))
+
+	time.Sleep(100 * time.Millisecond)
+	if calls.Load() != 0 {
+		t.Error("channel media handler should not run for messages without a document")
+	}
+}
+
+func TestChannelMediaInvalidJID(t *testing.T) {
+	router := newTestRouter(t, nil)
+	err := router.RegisterChannelMediaHandler("not-a-jid", func(_ context.Context, _ Sender, _ IncomingMessage) error {
+		return nil
+	})
+	if err == nil {
+		t.Error("expected error when registering an invalid channel media JID")
+	}
+}
+
+func TestExtractDocument(t *testing.T) {
+	// Document message
+	m := &waE2E.Message{
+		DocumentMessage: &waE2E.DocumentMessage{
+			Mimetype: proto.String("application/pdf"),
+			FileName: proto.String("paper.pdf"),
+		},
+	}
+	hasDoc, mime, filename := extractDocument(m)
+	if !hasDoc || mime != "application/pdf" || filename != "paper.pdf" {
+		t.Errorf("extractDocument = (%v, %q, %q), want (true, application/pdf, paper.pdf)", hasDoc, mime, filename)
+	}
+
+	// Non-document message
+	hasDoc, mime, filename = extractDocument(&waE2E.Message{Conversation: proto.String("hi")})
+	if hasDoc || mime != "" || filename != "" {
+		t.Errorf("extractDocument non-doc = (%v, %q, %q), want (false, , )", hasDoc, mime, filename)
+	}
+
+	// Nil safety
+	hasDoc, mime, filename = extractDocument(nil)
+	if hasDoc || mime != "" || filename != "" {
+		t.Errorf("extractDocument nil = (%v, %q, %q), want (false, , )", hasDoc, mime, filename)
 	}
 }

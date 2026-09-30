@@ -168,6 +168,75 @@ func (c *Client) DeleteMessage(ctx context.Context, msg IncomingMessage) error {
 	return nil
 }
 
+// DownloadMedia downloads the document attachment from an incoming message.
+// It returns an error if the message does not contain a document.
+func (c *Client) DownloadMedia(ctx context.Context, msg IncomingMessage) ([]byte, error) {
+	if msg.RawMessage == nil {
+		return nil, fmt.Errorf("message has no raw data")
+	}
+	doc := msg.RawMessage.GetDocumentMessage()
+	if doc == nil {
+		return nil, fmt.Errorf("message does not contain a document")
+	}
+	data, err := c.cli.Download(ctx, doc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download document: %w", err)
+	}
+	return data, nil
+}
+
+// Group represents a WhatsApp group chat.
+type Group struct {
+	JID  types.JID
+	Name string
+}
+
+// GroupParticipant represents a member of a WhatsApp group.
+type GroupParticipant struct {
+	JID          types.JID
+	PhoneNumber  types.JID
+	DisplayName  string
+	IsAdmin      bool
+	IsSuperAdmin bool
+}
+
+// GetJoinedGroups returns the WhatsApp groups the bot is participating in.
+func (c *Client) GetJoinedGroups(ctx context.Context) ([]Group, error) {
+	infos, err := c.cli.GetJoinedGroups(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get joined groups: %w", err)
+	}
+
+	groups := make([]Group, 0, len(infos))
+	for _, info := range infos {
+		groups = append(groups, Group{
+			JID:  info.JID,
+			Name: info.Name,
+		})
+	}
+	return groups, nil
+}
+
+// GetGroupParticipants returns the participants of a WhatsApp group.
+func (c *Client) GetGroupParticipants(ctx context.Context, groupJID types.JID) ([]GroupParticipant, error) {
+	info, err := c.cli.GetGroupInfo(ctx, groupJID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get group info: %w", err)
+	}
+
+	participants := make([]GroupParticipant, 0, len(info.Participants))
+	for _, p := range info.Participants {
+		participants = append(participants, GroupParticipant{
+			JID:          p.JID,
+			PhoneNumber:  p.PhoneNumber,
+			DisplayName:  p.DisplayName,
+			IsAdmin:      p.IsAdmin,
+			IsSuperAdmin: p.IsSuperAdmin,
+		})
+	}
+	return participants, nil
+}
+
 // quoteContext builds the ContextInfo that makes a message a quote-reply
 func (c *Client) quoteContext(msg IncomingMessage) *waE2E.ContextInfo {
 	return &waE2E.ContextInfo{
