@@ -62,13 +62,12 @@ func (h *HealthHandler) RegisterRoutes(router Router, middlewares ...middleware.
 // Get health status
 //
 //	@Summary      Get health status
-//	@Description  Get health status of the application
-//	@Tags         health
+//	@Description  Returns the current health status of the application.
+//	@Tags         System
 //	@Accept       json
 //	@Produce      json
-//	@Success      200  {object}   model.HealthInfo
-//	@Failure      500  {object}  model.HTTPError
-//	@Router       /health [get]
+//	@Success      200  {object}  model.HealthInfo
+//	@Router       /api/v1/health [get]
 func (h *HealthHandler) getHealth(w http.ResponseWriter, r *http.Request) {
 	h.log.Info("Received request for health status")
 

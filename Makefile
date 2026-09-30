@@ -6,8 +6,12 @@ APP_NAME := whatsappbot-golang
 LDFLAGS := -X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME) -X main.appName=$(APP_NAME)
 
 imageTag := whatsappbot-golang
+SWAG := $(shell go env GOPATH)/bin/swag
+GOOSE := $(shell go env GOPATH)/bin/goose
+DB_DRIVER ?= sqlite
+DB_DSN ?= /tmp/db.sqlite
 
-.PHONY: build check clean keys clean-keys container run test
+.PHONY: build binary check check-swagger clean clean-keys container keys migrate migrate-mysql run swagger test vulncheck
 
 keys: clean-keys
 	@mkdir -p keys
@@ -20,7 +24,31 @@ keys: clean-keys
 clean-keys:
 	rm -rf keys
 
-build: clean check keys
+swagger:
+	$(SWAG) init -g cmd/main.go -o docs
+
+migrate:
+ifeq ($(DB_DRIVER),sqlite)
+	$(GOOSE) -dir repository/migrations/sqlite sqlite3 "$(DB_DSN)" up
+else ifeq ($(DB_DRIVER),mysql)
+	$(GOOSE) -dir repository/migrations/mysql mysql "$(DB_DSN)" up
+else
+	@echo "Unsupported DB_DRIVER=$(DB_DRIVER). Use sqlite or mysql."
+	@exit 1
+endif
+
+migrate-mysql:
+	$(GOOSE) -dir repository/migrations/mysql mysql "$(MYSQL_DSN)" up
+
+check-swagger:
+	@rm -rf /tmp/docs
+	$(SWAG) init -g cmd/main.go -o /tmp/docs
+	@diff -r docs /tmp/docs || (echo "Swagger docs are out of date. Run 'make swagger' and commit the changes." && exit 1)
+
+build: clean check check-swagger keys
+	go build -ldflags "$(LDFLAGS)" -o build/main cmd/main.go
+
+binary: swagger
 	go build -ldflags "$(LDFLAGS)" -o build/main cmd/main.go
 
 check:

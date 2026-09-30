@@ -35,6 +35,10 @@ type Sender interface {
 // CommandHandler handles a matched incoming message
 type CommandHandler func(ctx context.Context, s Sender, msg IncomingMessage) error
 
+// ChannelMediaHandler handles document messages arriving from a configured
+// channel/group JID (e.g. automatic PDF downloads).
+type ChannelMediaHandler func(ctx context.Context, s Sender, msg IncomingMessage) error
+
 // Command binds a regex pattern to a handler. First matching command wins.
 type Command struct {
 	Name    string // Used in logs and metrics
@@ -55,6 +59,13 @@ type Router struct {
 	wg          sync.WaitGroup
 	onConnected func(ctx context.Context)
 	onLoggedOut func()
+
+	// channelMedia, when set, receives document messages from the configured JID
+	// before regular command matching.
+	channelMedia struct {
+		jid     types.JID
+		handler ChannelMediaHandler
+	}
 }
 
 // NewRouter creates a command router
@@ -84,6 +95,20 @@ func (r *Router) Register(name string, pattern *regexp.Regexp, handler CommandHa
 // SetFallback sets the handler invoked when no command matches and the bot is mentioned
 func (r *Router) SetFallback(handler CommandHandler) {
 	r.fallback = handler
+}
+
+// RegisterChannelMediaHandler registers a handler for document messages sent to
+// the configured channel/group JID. It runs before regex command matching and
+// does not require a text body.
+func (r *Router) RegisterChannelMediaHandler(jid string, handler ChannelMediaHandler) error {
+	parsed, err := types.ParseJID(jid)
+	if err != nil || parsed.User == "" || parsed.Server == "" {
+		return fmt.Errorf("invalid channel media JID %q", jid)
+	}
+	r.channelMedia.jid = parsed
+	r.channelMedia.handler = handler
+	r.log.Debug("Registered channel media handler", "jid", jid)
+	return nil
 }
 
 // SetConnectedHook sets the callback invoked when the client connects
@@ -124,12 +149,19 @@ func (r *Router) HandleEvent(evt interface{}) {
 func (r *Router) dispatch(evt *events.Message) {
 	msg := NewIncomingMessage(evt)
 
-	if msg.Body == "" {
+	// Ignore messages sent by the bot itself
+	if evt.Info.IsFromMe {
 		return
 	}
 
-	// Ignore messages sent by the bot itself
-	if evt.Info.IsFromMe {
+	// Channel media handler takes precedence for document messages from the
+	// configured channel/group JID, even when there is no text body.
+	if r.channelMedia.handler != nil && r.matchesChannelMedia(msg) {
+		r.execute("channel_media", CommandHandler(r.channelMedia.handler), msg)
+		return
+	}
+
+	if msg.Body == "" {
 		return
 	}
 
@@ -143,6 +175,15 @@ func (r *Router) dispatch(evt *events.Message) {
 	if r.fallback != nil && r.mentionsBot(msg) {
 		r.execute("ai_fallback", r.fallback, msg)
 	}
+}
+
+// matchesChannelMedia reports whether the message is a document message sent to
+// the configured channel/group JID.
+func (r *Router) matchesChannelMedia(msg IncomingMessage) bool {
+	if !msg.HasDocument {
+		return false
+	}
+	return msg.Chat.String() == r.channelMedia.jid.String()
 }
 
 // mentionsBot reports whether the message mentions the bot in any of its known JID forms

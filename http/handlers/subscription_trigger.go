@@ -69,7 +69,17 @@ func (h *SubscriptionTriggerHandler) RegisterRoutes(router Router, middlewares .
 	}
 }
 
-// trigger fires the subscription notification asynchronously and responds immediately
+// Trigger subscription notifications.
+//
+//	@Summary      Trigger subscription notifications
+//	@Description  Notifies all subscribers whose subscription text matches the provided filename.
+//	@Tags         Quiosk
+//	@Accept       json
+//	@Produce      json
+//	@Param        request body triggerRequest true "Subscription trigger"
+//	@Success      200 {object} statusResponse
+//	@Failure      400 {object} statusResponse
+//	@Router       /api/v1/file [post]
 func (h *SubscriptionTriggerHandler) trigger(w http.ResponseWriter, r *http.Request) {
 	var req triggerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
