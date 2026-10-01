@@ -11,6 +11,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
 )
 
@@ -19,11 +20,11 @@ type fakeSchedulerService struct {
 	cmds []model.ScheduledCommand
 }
 
-func (f *fakeSchedulerService) Create(ctx context.Context, cmd model.ScheduledCommand) (int64, error) {
+func (f *fakeSchedulerService) Create(ctx context.Context, cmd model.ScheduledCommand) (uuid.UUID, error) {
 	if cmd.Schedule == "bad" {
-		return 0, errors.New("invalid schedule")
+		return uuid.Nil, errors.New("invalid schedule")
 	}
-	cmd.ID = int64(len(f.cmds) + 1)
+	cmd.ID = uuid.Must(uuid.NewV7())
 	f.cmds = append(f.cmds, cmd)
 	return cmd.ID, nil
 }
@@ -32,7 +33,7 @@ func (f *fakeSchedulerService) List(ctx context.Context) ([]model.ScheduledComma
 	return f.cmds, nil
 }
 
-func (f *fakeSchedulerService) Delete(ctx context.Context, id int64) error {
+func (f *fakeSchedulerService) Delete(ctx context.Context, id uuid.UUID) error {
 	for i, c := range f.cmds {
 		if c.ID == id {
 			f.cmds = append(f.cmds[:i], f.cmds[i+1:]...)
@@ -75,6 +76,14 @@ func TestSchedulerCreate(t *testing.T) {
 	if len(svc.cmds) != 1 {
 		t.Fatalf("expected 1 command, got %d", len(svc.cmds))
 	}
+
+	var resp scheduledCommandResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.ID == "" {
+		t.Fatal("expected id in response")
+	}
 }
 
 func TestSchedulerCreateValidation(t *testing.T) {
@@ -98,7 +107,7 @@ func TestSchedulerCreateValidation(t *testing.T) {
 
 func TestSchedulerList(t *testing.T) {
 	h, svc := newSchedulerHandler(t)
-	svc.cmds = []model.ScheduledCommand{{ID: 1, Name: "morning", Schedule: "0 8 * * *", Command: "electricidad", GroupJID: "123@g.us"}}
+	svc.cmds = []model.ScheduledCommand{{ID: uuid.Must(uuid.NewV7()), Name: "morning", Schedule: "0 8 * * *", Command: "electricidad", GroupJID: "123@g.us"}}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/scheduler", nil)
 	rec := httptest.NewRecorder()
@@ -120,10 +129,11 @@ func TestSchedulerList(t *testing.T) {
 
 func TestSchedulerDelete(t *testing.T) {
 	h, svc := newSchedulerHandler(t)
-	svc.cmds = []model.ScheduledCommand{{ID: 1, Name: "morning", Schedule: "0 8 * * *", Command: "electricidad", GroupJID: "123@g.us"}}
+	id := uuid.Must(uuid.NewV7())
+	svc.cmds = []model.ScheduledCommand{{ID: id, Name: "morning", Schedule: "0 8 * * *", Command: "electricidad", GroupJID: "123@g.us"}}
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/scheduler/1", nil)
-	req.SetPathValue("id", "1")
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/scheduler/"+id.String(), nil)
+	req.SetPathValue("id", id.String())
 	rec := httptest.NewRecorder()
 
 	h.delete(rec, req)
@@ -139,8 +149,9 @@ func TestSchedulerDelete(t *testing.T) {
 func TestSchedulerDeleteNotFound(t *testing.T) {
 	h, _ := newSchedulerHandler(t)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/scheduler/99", nil)
-	req.SetPathValue("id", "99")
+	id := uuid.Must(uuid.NewV7())
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/scheduler/"+id.String(), nil)
+	req.SetPathValue("id", id.String())
 	rec := httptest.NewRecorder()
 
 	h.delete(rec, req)

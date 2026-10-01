@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
 	"github.com/robfig/cron/v3"
 	"go.mau.fi/whatsmeow/types"
@@ -15,22 +16,22 @@ import (
 
 // fakeStore is an in-memory scheduler store for tests.
 type fakeStore struct {
-	cmds   []model.ScheduledCommand
-	nextID int64
+	cmds []model.ScheduledCommand
 }
 
-func (f *fakeStore) CreateScheduledCommand(ctx context.Context, cmd model.ScheduledCommand) (int64, error) {
-	f.nextID++
-	cmd.ID = f.nextID
+func (f *fakeStore) CreateScheduledCommand(ctx context.Context, cmd model.ScheduledCommand) (uuid.UUID, error) {
+	if cmd.ID == uuid.Nil {
+		cmd.ID = uuid.Must(uuid.NewV7())
+	}
 	f.cmds = append(f.cmds, cmd)
-	return f.nextID, nil
+	return cmd.ID, nil
 }
 
 func (f *fakeStore) ListScheduledCommands(ctx context.Context) ([]model.ScheduledCommand, error) {
 	return append([]model.ScheduledCommand(nil), f.cmds...), nil
 }
 
-func (f *fakeStore) DeleteScheduledCommand(ctx context.Context, id int64) error {
+func (f *fakeStore) DeleteScheduledCommand(ctx context.Context, id uuid.UUID) error {
 	for i, c := range f.cmds {
 		if c.ID == id {
 			f.cmds = append(f.cmds[:i], f.cmds[i+1:]...)
@@ -156,8 +157,8 @@ func TestCreateStoresAndRegistersCronJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
-	if id == 0 {
-		t.Fatal("expected non-zero id")
+	if id == uuid.Nil {
+		t.Fatal("expected non-nil id")
 	}
 
 	if _, ok := svc.entries[id]; !ok {
@@ -173,7 +174,8 @@ func TestRunJobExecutesWhenConnected(t *testing.T) {
 		t.Fatalf("New failed: %v", err)
 	}
 
-	svc.runJob(1, "0 8 * * *", "electricidad", "123456789@g.us")
+	id := uuid.Must(uuid.NewV7())
+	svc.runJob(id, "0 8 * * *", "electricidad", "123456789@g.us")
 
 	if len(exec.execs) != 1 {
 		t.Fatalf("expected 1 execution, got %d", len(exec.execs))
@@ -224,15 +226,15 @@ func TestDeleteRemovesJob(t *testing.T) {
 }
 
 func TestRunJobSkipsWhenDisconnected(t *testing.T) {
-	store := &fakeStore{}
 	exec := &fakeExecutor{commands: []string{"electricidad"}}
 	checker := &fakeChecker{connected: false}
-	svc, err := New(store, exec, checker, testLogger(), noop.NewTracerProvider(), Config{Timezone: "Europe/Madrid"})
+	svc, err := New(&fakeStore{}, exec, checker, testLogger(), noop.NewTracerProvider(), Config{Timezone: "Europe/Madrid"})
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
 
-	svc.runJob(1, "* * * * *", "electricidad", "123456789@g.us")
+	id := uuid.Must(uuid.NewV7())
+	svc.runJob(id, "* * * * *", "electricidad", "123456789@g.us")
 
 	if len(exec.execs) != 0 {
 		t.Fatal("expected no execution when disconnected")

@@ -58,10 +58,12 @@ definitions:
       group_jid:
         type: string
       id:
-        type: integer
+        type: string
       name:
         type: string
       schedule:
+        type: string
+      updated_at:
         type: string
     type: object
   handlers.statusResponse:
@@ -221,11 +223,11 @@ paths:
     delete:
       description: Removes a scheduled command by ID.
       parameters:
-      - description: Schedule ID
+      - description: Schedule UUID
         in: path
         name: id
         required: true
-        type: integer
+        type: string
       responses:
         "204":
           description: No Content

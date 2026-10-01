@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
 )
 
@@ -237,8 +238,8 @@ func TestScheduledCommandsLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateScheduledCommand failed: %v", err)
 	}
-	if id == 0 {
-		t.Fatal("expected non-zero id")
+	if id == uuid.Nil {
+		t.Fatal("expected non-nil id")
 	}
 
 	cmds, err := db.ListScheduledCommands(ctx)
@@ -250,6 +251,9 @@ func TestScheduledCommandsLifecycle(t *testing.T) {
 	}
 	if cmds[0].Name != cmd.Name {
 		t.Fatalf("unexpected name: %s", cmds[0].Name)
+	}
+	if cmds[0].ID != id {
+		t.Fatalf("unexpected id: got %s, want %s", cmds[0].ID, id)
 	}
 
 	if err := db.DeleteScheduledCommand(ctx, id); err != nil {

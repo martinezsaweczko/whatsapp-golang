@@ -1,10 +1,18 @@
 package model
 
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
 // Subscription represents a user's keyword subscription for file notifications
 type Subscription struct {
-	ID               int64
+	ID               uuid.UUID
 	SubscriptionText string
 	User             string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // FileUsage represents an access attempt to a file on the download server

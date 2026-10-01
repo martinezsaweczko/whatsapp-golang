@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
 	"github.com/robfig/cron/v3"
 	"go.mau.fi/whatsmeow/types"
@@ -16,9 +17,9 @@ import (
 
 // Store persists scheduled commands.
 type Store interface {
-	CreateScheduledCommand(ctx context.Context, cmd model.ScheduledCommand) (int64, error)
+	CreateScheduledCommand(ctx context.Context, cmd model.ScheduledCommand) (uuid.UUID, error)
 	ListScheduledCommands(ctx context.Context) ([]model.ScheduledCommand, error)
-	DeleteScheduledCommand(ctx context.Context, id int64) error
+	DeleteScheduledCommand(ctx context.Context, id uuid.UUID) error
 }
 
 // CommandExecutor runs a command by matching its text against registered handlers.
@@ -47,9 +48,9 @@ type Service struct {
 	log      *slog.Logger
 	tracer   trace.Tracer
 	cfg      Config
-	cron     *cron.Cron
-	entries  map[int64]cron.EntryID
-	location *time.Location
+	cron      *cron.Cron
+	entries   map[uuid.UUID]cron.EntryID
+	location  *time.Location
 }
 
 // New creates a scheduler service. It does not start the cron runner; call Start after creation.
@@ -76,7 +77,7 @@ func New(store Store, executor CommandExecutor, checker ConnectionChecker, log *
 		log:      log,
 		tracer:   tp.Tracer("services/scheduler"),
 		cfg:      cfg,
-		entries:  make(map[int64]cron.EntryID),
+		entries:  make(map[uuid.UUID]cron.EntryID),
 		location: loc,
 	}, nil
 }
@@ -114,29 +115,29 @@ func (s *Service) Stop() {
 }
 
 // Create validates and persists a new scheduled command, then adds it to the cron runner.
-func (s *Service) Create(ctx context.Context, cmd model.ScheduledCommand) (int64, error) {
+func (s *Service) Create(ctx context.Context, cmd model.ScheduledCommand) (uuid.UUID, error) {
 	ctx, span := s.tracer.Start(ctx, "scheduler.Create")
 	defer span.End()
 
 	if err := s.validate(cmd); err != nil {
 		span.SetAttributes(attribute.String("validation_error", err.Error()))
-		return 0, err
+		return uuid.Nil, err
 	}
 
 	cmd.Enabled = true
 	id, err := s.store.CreateScheduledCommand(ctx, cmd)
 	if err != nil {
-		return 0, fmt.Errorf("failed to store scheduled command: %w", err)
+		return uuid.Nil, fmt.Errorf("failed to store scheduled command: %w", err)
 	}
 	cmd.ID = id
 
 	if s.cron != nil {
 		if err := s.addCronJob(cmd); err != nil {
-			s.log.Error("Failed to add cron job after create", "id", id, "error", err)
+			s.log.Error("Failed to add cron job after create", "id", id.String(), "error", err)
 		}
 	}
 
-	s.log.Info("Created scheduled command", "id", id, "schedule", cmd.Schedule, "command", cmd.Command)
+	s.log.Info("Created scheduled command", "id", id.String(), "schedule", cmd.Schedule, "command", cmd.Command)
 	return id, nil
 }
 
@@ -146,7 +147,7 @@ func (s *Service) List(ctx context.Context) ([]model.ScheduledCommand, error) {
 }
 
 // Delete removes a scheduled command from the cron runner and the database.
-func (s *Service) Delete(ctx context.Context, id int64) error {
+func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	if s.cron != nil {
 		if entryID, ok := s.entries[id]; ok {
 			s.cron.Remove(entryID)
@@ -158,7 +159,7 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 		return fmt.Errorf("failed to delete scheduled command: %w", err)
 	}
 
-	s.log.Info("Deleted scheduled command", "id", id)
+	s.log.Info("Deleted scheduled command", "id", id.String())
 	return nil
 }
 
@@ -203,10 +204,10 @@ func (s *Service) addCronJob(cmd model.ScheduledCommand) error {
 }
 
 // runJob executes a single scheduled command.
-func (s *Service) runJob(id int64, schedule, command, groupJIDStr string) {
+func (s *Service) runJob(id uuid.UUID, schedule, command, groupJIDStr string) {
 	ctx, span := s.tracer.Start(context.Background(), "scheduler.runJob",
 		trace.WithAttributes(
-			attribute.Int64("id", id),
+			attribute.String("id", id.String()),
 			attribute.String("schedule", schedule),
 			attribute.String("command", command),
 			attribute.String("group_jid", groupJIDStr),

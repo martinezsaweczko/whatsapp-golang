@@ -10,6 +10,7 @@ import (
 	"log/slog"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
@@ -17,6 +18,11 @@ import (
 
 //go:embed migrations/*/*.sql
 var migrationsFS embed.FS
+
+// newUUID returns a time-ordered UUID v7.
+func newUUID() uuid.UUID {
+	return uuid.Must(uuid.NewV7())
+}
 
 // Config holds the database connection and migration settings.
 type Config struct {
@@ -151,8 +157,8 @@ func (d *DB) Close() error {
 // SaveSubscription stores a new keyword subscription for a user.
 func (d *DB) SaveSubscription(ctx context.Context, subscriptionText, user string) error {
 	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO subscriptions (subscription_text, user) VALUES (?, ?)",
-		subscriptionText, user)
+		"INSERT INTO subscriptions (id, subscription_text, user) VALUES (?, ?, ?)",
+		newUUID().String(), subscriptionText, user)
 	if err != nil {
 		return fmt.Errorf("failed to save subscription: %w", err)
 	}
@@ -171,7 +177,7 @@ func (d *DB) DeleteSubscription(ctx context.Context, user string) error {
 // ReturnSubscriptions returns all subscriptions of a user.
 func (d *DB) ReturnSubscriptions(ctx context.Context, user string) ([]model.Subscription, error) {
 	rows, err := d.db.QueryContext(ctx,
-		"SELECT id, subscription_text, user FROM subscriptions WHERE user = ?", user)
+		"SELECT id, subscription_text, user, created_date, updated_date FROM subscriptions WHERE user = ?", user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query subscriptions: %w", err)
 	}
@@ -180,8 +186,13 @@ func (d *DB) ReturnSubscriptions(ctx context.Context, user string) ([]model.Subs
 	var subs []model.Subscription
 	for rows.Next() {
 		var s model.Subscription
-		if err := rows.Scan(&s.ID, &s.SubscriptionText, &s.User); err != nil {
+		var idStr string
+		if err := rows.Scan(&idStr, &s.SubscriptionText, &s.User, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan subscription: %w", err)
+		}
+		s.ID, err = uuid.Parse(idStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse subscription id: %w", err)
 		}
 		subs = append(subs, s)
 	}
@@ -221,7 +232,7 @@ func (d *DB) CountTokenUses(ctx context.Context, jwt string) (int, error) {
 
 // SaveToken records a JWT usage.
 func (d *DB) SaveToken(ctx context.Context, jwt string) error {
-	_, err := d.db.ExecContext(ctx, "INSERT INTO jwt_used (jwt) VALUES (?)", jwt)
+	_, err := d.db.ExecContext(ctx, "INSERT INTO jwt_used (id, jwt) VALUES (?, ?)", newUUID().String(), jwt)
 	if err != nil {
 		return fmt.Errorf("failed to save token: %w", err)
 	}
@@ -248,7 +259,7 @@ func (d *DB) CleanJWT(ctx context.Context) error {
 // ReportFileUsage records an access attempt to a file with its HTTP result code.
 func (d *DB) ReportFileUsage(ctx context.Context, file string, result int) error {
 	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO file_usage (file, result) VALUES (?, ?)", file, result)
+		"INSERT INTO file_usage (id, file, result) VALUES (?, ?, ?)", newUUID().String(), file, result)
 	if err != nil {
 		return fmt.Errorf("failed to report file usage: %w", err)
 	}
@@ -258,7 +269,7 @@ func (d *DB) ReportFileUsage(ctx context.Context, file string, result int) error
 // ReportUserUsage records that a user requested a download link for a file.
 func (d *DB) ReportUserUsage(ctx context.Context, user, file string) error {
 	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO user_usage (user, file) VALUES (?, ?)", user, file)
+		"INSERT INTO user_usage (id, user, file) VALUES (?, ?, ?)", newUUID().String(), user, file)
 	if err != nil {
 		return fmt.Errorf("failed to report user usage: %w", err)
 	}

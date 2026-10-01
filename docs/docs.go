@@ -203,8 +203,8 @@ const docTemplate = `{
                 "summary": "Delete a scheduled command",
                 "parameters": [
                     {
-                        "type": "integer",
-                        "description": "Schedule ID",
+                        "type": "string",
+                        "description": "Schedule UUID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -573,12 +573,15 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "id": {
-                    "type": "integer"
+                    "type": "string"
                 },
                 "name": {
                     "type": "string"
                 },
                 "schedule": {
+                    "type": "string"
+                },
+                "updated_at": {
                     "type": "string"
                 }
             }

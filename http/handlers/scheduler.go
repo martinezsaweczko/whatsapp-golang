@@ -7,19 +7,19 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/martinezsaweczko/whatsappBot-golang/http/middleware"
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
 )
 
 // SchedulerService is the interface consumed by the scheduler HTTP handler.
 type SchedulerService interface {
-	Create(ctx context.Context, cmd model.ScheduledCommand) (int64, error)
+	Create(ctx context.Context, cmd model.ScheduledCommand) (uuid.UUID, error)
 	List(ctx context.Context) ([]model.ScheduledCommand, error)
-	Delete(ctx context.Context, id int64) error
+	Delete(ctx context.Context, id uuid.UUID) error
 }
 
 // SchedulerHandlerConfig holds dependencies for the scheduler handler.
@@ -46,13 +46,14 @@ type createScheduleRequest struct {
 
 // scheduledCommandResponse is the JSON representation of a scheduled command.
 type scheduledCommandResponse struct {
-	ID        int64  `json:"id"`
+	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Schedule  string `json:"schedule"`
 	Command   string `json:"command"`
 	GroupJID  string `json:"group_jid"`
 	Enabled   bool   `json:"enabled"`
 	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 // NewSchedulerHandler creates a new scheduler handler.
@@ -129,13 +130,14 @@ func (h *SchedulerHandler) create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, scheduledCommandResponse{
-		ID:        id,
+		ID:        id.String(),
 		Name:      cmd.Name,
 		Schedule:  cmd.Schedule,
 		Command:   cmd.Command,
 		GroupJID:  cmd.GroupJID,
 		Enabled:   true,
 		CreatedAt: "",
+		UpdatedAt: "",
 	})
 }
 
@@ -159,13 +161,14 @@ func (h *SchedulerHandler) list(w http.ResponseWriter, r *http.Request) {
 	resp := make([]scheduledCommandResponse, 0, len(cmds))
 	for _, c := range cmds {
 		resp = append(resp, scheduledCommandResponse{
-			ID:        c.ID,
+			ID:        c.ID.String(),
 			Name:      c.Name,
 			Schedule:  c.Schedule,
 			Command:   c.Command,
 			GroupJID:  c.GroupJID,
 			Enabled:   c.Enabled,
 			CreatedAt: c.CreatedAt.Format(time.RFC3339),
+			UpdatedAt: c.UpdatedAt.Format(time.RFC3339),
 		})
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -176,14 +179,14 @@ func (h *SchedulerHandler) list(w http.ResponseWriter, r *http.Request) {
 //	@Summary      Delete a scheduled command
 //	@Description  Removes a scheduled command by ID.
 //	@Tags         Scheduler
-//	@Param        id path int true "Schedule ID"
+//	@Param        id path string true "Schedule UUID"
 //	@Success      204
 //	@Failure      400 {object} errorResponse
 //	@Failure      404 {object} errorResponse
 //	@Router       /api/v1/scheduler/{id} [delete]
 func (h *SchedulerHandler) delete(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimSpace(r.PathValue("id"))
-	id, err := strconv.ParseInt(idStr, 10, 64)
+	id, err := uuid.Parse(idStr)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid schedule id"})
 		return
@@ -194,7 +197,7 @@ func (h *SchedulerHandler) delete(w http.ResponseWriter, r *http.Request) {
 		if err == sql.ErrNoRows {
 			status = http.StatusNotFound
 		}
-		h.log.Error("Failed to delete scheduled command", "id", id, "error", err)
+		h.log.Error("Failed to delete scheduled command", "id", id.String(), "error", err)
 		writeJSON(w, status, errorResponse{Error: "failed to delete scheduled command"})
 		return
 	}
