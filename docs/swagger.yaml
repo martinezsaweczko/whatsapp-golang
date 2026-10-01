@@ -190,7 +190,7 @@ paths:
             $ref: '#/definitions/handlers.errorResponse'
       summary: List scheduled commands
       tags:
-      - System
+      - Scheduler
     post:
       consumes:
       - application/json
@@ -216,7 +216,7 @@ paths:
             $ref: '#/definitions/handlers.errorResponse'
       summary: Create a scheduled command
       tags:
-      - System
+      - Scheduler
   /api/v1/scheduler/{id}:
     delete:
       description: Removes a scheduled command by ID.
@@ -239,7 +239,7 @@ paths:
             $ref: '#/definitions/handlers.errorResponse'
       summary: Delete a scheduled command
       tags:
-      - System
+      - Scheduler
   /api/v1/version:
     get:
       consumes:

@@ -126,7 +126,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "System"
+                    "Scheduler"
                 ],
                 "summary": "List scheduled commands",
                 "responses": {
@@ -156,7 +156,7 @@
                     "application/json"
                 ],
                 "tags": [
-                    "System"
+                    "Scheduler"
                 ],
                 "summary": "Create a scheduled command",
                 "parameters": [
@@ -190,7 +190,7 @@
             "delete": {
                 "description": "Removes a scheduled command by ID.",
                 "tags": [
-                    "System"
+                    "Scheduler"
                 ],
                 "summary": "Delete a scheduled command",
                 "parameters": [

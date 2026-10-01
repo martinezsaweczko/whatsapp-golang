@@ -150,7 +150,7 @@ func (c *Client) SendText(ctx context.Context, to types.JID, text string) error 
 	out := &waE2E.Message{
 		Conversation: proto.String(text),
 	}
-	return c.send(ctx, to, out)
+	return c.send(ctx, normalizeJID(to), out)
 }
 
 // ReplyMedia sends media quoting the original message.
@@ -164,7 +164,7 @@ func (c *Client) ReplyMedia(ctx context.Context, msg IncomingMessage, data []byt
 
 // SendMedia sends media to a JID without quoting
 func (c *Client) SendMedia(ctx context.Context, to types.JID, data []byte, mimeType, filename string) error {
-	return c.sendMedia(ctx, to, data, mimeType, filename, nil)
+	return c.sendMedia(ctx, normalizeJID(to), data, mimeType, filename, nil)
 }
 
 // DeleteMessage deletes (revokes) a message for everyone
@@ -310,6 +310,15 @@ func (c *Client) send(ctx context.Context, to types.JID, msg *waE2E.Message) err
 		return fmt.Errorf("failed to send message to %s: %w", to.String(), err)
 	}
 	return nil
+}
+
+// normalizeJID converts legacy @c.us user JIDs to the @s.whatsapp.net server
+// that whatsmeow requires for sending messages. Other JIDs are returned unchanged.
+func normalizeJID(jid types.JID) types.JID {
+	if jid.Server == "c.us" {
+		return types.NewJID(jid.User, types.DefaultUserServer)
+	}
+	return jid
 }
 
 // mediaTypeFor maps a mime type to a whatsmeow media type

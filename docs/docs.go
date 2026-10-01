@@ -134,7 +134,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "System"
+                    "Scheduler"
                 ],
                 "summary": "List scheduled commands",
                 "responses": {
@@ -164,7 +164,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "System"
+                    "Scheduler"
                 ],
                 "summary": "Create a scheduled command",
                 "parameters": [
@@ -198,7 +198,7 @@ const docTemplate = `{
             "delete": {
                 "description": "Removes a scheduled command by ID.",
                 "tags": [
-                    "System"
+                    "Scheduler"
                 ],
                 "summary": "Delete a scheduled command",
                 "parameters": [

@@ -119,13 +119,17 @@ func (h *NotificationHandler) send(w http.ResponseWriter, r *http.Request) {
 }
 
 // parseRecipient converts a recipient string into a WhatsApp JID.
-// If the string contains an "@" it is parsed as a full JID; otherwise it is
-// treated as an E.164 phone number and converted to user@s.whatsapp.net.
+// If the string contains an "@" it is parsed as a full JID; legacy @c.us user
+// JIDs are normalized to @s.whatsapp.net. Otherwise the string is treated as an
+// E.164 phone number and converted to user@s.whatsapp.net.
 func parseRecipient(recipient string) (types.JID, error) {
 	if strings.Contains(recipient, "@") {
 		jid, err := types.ParseJID(recipient)
 		if err != nil || jid.User == "" || jid.Server == "" {
 			return types.EmptyJID, fmt.Errorf("invalid WhatsApp JID: %s", recipient)
+		}
+		if jid.Server == "c.us" {
+			jid = types.NewJID(jid.User, types.DefaultUserServer)
 		}
 		return jid, nil
 	}

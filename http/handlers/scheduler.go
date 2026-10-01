@@ -92,7 +92,7 @@ func (h *SchedulerHandler) RegisterRoutes(router Router, middlewares ...middlewa
 //
 //	@Summary      Create a scheduled command
 //	@Description  Schedules a WhatsApp command to run automatically in a group using a cron expression.
-//	@Tags         System
+//	@Tags         Scheduler
 //	@Accept       json
 //	@Produce      json
 //	@Param        request body createScheduleRequest true "Scheduled command"
@@ -143,7 +143,7 @@ func (h *SchedulerHandler) create(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary      List scheduled commands
 //	@Description  Returns all scheduled commands.
-//	@Tags         System
+//	@Tags         Scheduler
 //	@Produce      json
 //	@Success      200 {array} scheduledCommandResponse
 //	@Failure      502 {object} errorResponse
@@ -175,7 +175,7 @@ func (h *SchedulerHandler) list(w http.ResponseWriter, r *http.Request) {
 //
 //	@Summary      Delete a scheduled command
 //	@Description  Removes a scheduled command by ID.
-//	@Tags         System
+//	@Tags         Scheduler
 //	@Param        id path int true "Schedule ID"
 //	@Success      204
 //	@Failure      400 {object} errorResponse
