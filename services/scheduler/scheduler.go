@@ -48,9 +48,9 @@ type Service struct {
 	log      *slog.Logger
 	tracer   trace.Tracer
 	cfg      Config
-	cron      *cron.Cron
-	entries   map[uuid.UUID]cron.EntryID
-	location  *time.Location
+	cron     *cron.Cron
+	entries  map[uuid.UUID]cron.EntryID
+	location *time.Location
 }
 
 // New creates a scheduler service. It does not start the cron runner; call Start after creation.

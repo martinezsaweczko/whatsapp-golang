@@ -421,8 +421,10 @@ func TestExecuteCommandRequiresSender(t *testing.T) {
 // fakeSender implements Sender for tests.
 type fakeSender struct{}
 
-func (f *fakeSender) ReplyText(ctx context.Context, msg IncomingMessage, text string) error   { return nil }
-func (f *fakeSender) SendText(ctx context.Context, to types.JID, text string) error            { return nil }
+func (f *fakeSender) ReplyText(ctx context.Context, msg IncomingMessage, text string) error {
+	return nil
+}
+func (f *fakeSender) SendText(ctx context.Context, to types.JID, text string) error { return nil }
 func (f *fakeSender) ReplyMedia(ctx context.Context, msg IncomingMessage, data []byte, mimeType, filename string) error {
 	return nil
 }
