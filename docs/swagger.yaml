@@ -1,4 +1,15 @@
 definitions:
+  handlers.createScheduleRequest:
+    properties:
+      command:
+        type: string
+      group_jid:
+        type: string
+      name:
+        type: string
+      schedule:
+        type: string
+    type: object
   handlers.errorResponse:
     properties:
       error:
@@ -34,6 +45,23 @@ definitions:
       jid:
         type: string
       phone_number:
+        type: string
+    type: object
+  handlers.scheduledCommandResponse:
+    properties:
+      command:
+        type: string
+      created_at:
+        type: string
+      enabled:
+        type: boolean
+      group_jid:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      schedule:
         type: string
     type: object
   handlers.statusResponse:
@@ -144,6 +172,74 @@ paths:
       summary: Send a WhatsApp notification
       tags:
       - Whatsapp
+  /api/v1/scheduler:
+    get:
+      description: Returns all scheduled commands.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/handlers.scheduledCommandResponse'
+            type: array
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/handlers.errorResponse'
+      summary: List scheduled commands
+      tags:
+      - System
+    post:
+      consumes:
+      - application/json
+      description: Schedules a WhatsApp command to run automatically in a group using
+        a cron expression.
+      parameters:
+      - description: Scheduled command
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.createScheduleRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/handlers.scheduledCommandResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.errorResponse'
+      summary: Create a scheduled command
+      tags:
+      - System
+  /api/v1/scheduler/{id}:
+    delete:
+      description: Removes a scheduled command by ID.
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.errorResponse'
+      summary: Delete a scheduled command
+      tags:
+      - System
   /api/v1/version:
     get:
       consumes:

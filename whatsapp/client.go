@@ -130,8 +130,12 @@ func (c *Client) OwnJID() types.JID {
 	return *c.cli.Store.ID
 }
 
-// ReplyText sends a text message quoting the original message
+// ReplyText sends a text message quoting the original message.
+// For synthetic messages it falls back to a plain SendText (no quote context).
 func (c *Client) ReplyText(ctx context.Context, msg IncomingMessage, text string) error {
+	if msg.Synthetic {
+		return c.SendText(ctx, msg.Chat, text)
+	}
 	out := &waE2E.Message{
 		ExtendedTextMessage: &waE2E.ExtendedTextMessage{
 			Text:        proto.String(text),
@@ -149,8 +153,12 @@ func (c *Client) SendText(ctx context.Context, to types.JID, text string) error 
 	return c.send(ctx, to, out)
 }
 
-// ReplyMedia sends media quoting the original message
+// ReplyMedia sends media quoting the original message.
+// For synthetic messages it falls back to a plain SendMedia (no quote context).
 func (c *Client) ReplyMedia(ctx context.Context, msg IncomingMessage, data []byte, mimeType, filename string) error {
+	if msg.Synthetic {
+		return c.SendMedia(ctx, msg.Chat, data, mimeType, filename)
+	}
 	return c.sendMedia(ctx, msg.Chat, data, mimeType, filename, c.quoteContext(msg))
 }
 

@@ -20,6 +20,8 @@ func validBotConfig() BotConfig {
 		DBPath:                 "/tmp/db.sqlite",
 		SessionDBPath:          "/tmp/session.db",
 		CommandTimeout:         60,
+		SchedulerTimezone:      "Europe/Madrid",
+		SchedulerEnabled:       true,
 	}
 }
 
@@ -45,6 +47,8 @@ func TestBotConfigValidateErrors(t *testing.T) {
 		{"mysql without dsn", func(c *BotConfig) { c.DBDriver = "mysql"; c.DBDSN = ""; c.DBPath = "" }},
 		{"missing session db", func(c *BotConfig) { c.SessionDBPath = "" }},
 		{"zero timeout", func(c *BotConfig) { c.CommandTimeout = 0 }},
+		{"empty scheduler timezone", func(c *BotConfig) { c.SchedulerTimezone = "" }},
+		{"invalid scheduler timezone", func(c *BotConfig) { c.SchedulerTimezone = "Mars/Olympus" }},
 	}
 
 	for _, tc := range tests {

@@ -348,6 +348,89 @@ func TestChannelMediaInvalidJID(t *testing.T) {
 	}
 }
 
+func TestMatchReturnsFirstCommand(t *testing.T) {
+	router := newTestRouter(t, nil)
+	router.Register("electricidad", regexp.MustCompile(`^(?i)elec(tricidad)?`), func(_ context.Context, _ Sender, _ IncomingMessage) error { return nil })
+
+	name, err := router.Match("electricidad")
+	if err != nil || name != "electricidad" {
+		t.Fatalf("expected electricidad, got %q %v", name, err)
+	}
+
+	_, err = router.Match("unknown")
+	if err == nil {
+		t.Fatal("expected error for unmatched command")
+	}
+}
+
+func TestExecuteCommandSynthetic(t *testing.T) {
+	router := newTestRouter(t, nil)
+
+	var got IncomingMessage
+	router.Register("electricidad", regexp.MustCompile(`^(?i)elec(tricidad)?`), func(_ context.Context, _ Sender, msg IncomingMessage) error {
+		got = msg
+		return nil
+	})
+
+	sender := &fakeSender{}
+	router.SetSender(sender)
+
+	chat := types.NewJID("123456789", types.GroupServer)
+	senderJID := types.NewJID("bot", types.DefaultUserServer)
+	if err := router.ExecuteCommand(context.Background(), "electricidad", chat, senderJID); err != nil {
+		t.Fatalf("ExecuteCommand failed: %v", err)
+	}
+
+	if got.Body != "electricidad" {
+		t.Fatalf("unexpected body: %q", got.Body)
+	}
+	if got.Chat.String() != chat.String() {
+		t.Fatalf("unexpected chat: %s", got.Chat.String())
+	}
+	if got.Sender.String() != senderJID.String() {
+		t.Fatalf("unexpected sender: %s", got.Sender.String())
+	}
+	if !got.Synthetic {
+		t.Fatal("expected synthetic message")
+	}
+	if !got.IsGroup {
+		t.Fatal("expected group chat")
+	}
+}
+
+func TestExecuteCommandNoMatch(t *testing.T) {
+	router := newTestRouter(t, nil)
+	router.SetSender(&fakeSender{})
+
+	err := router.ExecuteCommand(context.Background(), "unknown", types.NewJID("123@g.us", types.GroupServer), types.EmptyJID)
+	if err == nil {
+		t.Fatal("expected error for unmatched command")
+	}
+}
+
+func TestExecuteCommandRequiresSender(t *testing.T) {
+	router := newTestRouter(t, nil)
+	router.Register("cmd", regexp.MustCompile(`.*`), func(_ context.Context, _ Sender, _ IncomingMessage) error { return nil })
+
+	err := router.ExecuteCommand(context.Background(), "cmd", types.NewJID("123@g.us", types.GroupServer), types.EmptyJID)
+	if err == nil {
+		t.Fatal("expected error when sender not set")
+	}
+}
+
+// fakeSender implements Sender for tests.
+type fakeSender struct{}
+
+func (f *fakeSender) ReplyText(ctx context.Context, msg IncomingMessage, text string) error   { return nil }
+func (f *fakeSender) SendText(ctx context.Context, to types.JID, text string) error            { return nil }
+func (f *fakeSender) ReplyMedia(ctx context.Context, msg IncomingMessage, data []byte, mimeType, filename string) error {
+	return nil
+}
+func (f *fakeSender) SendMedia(ctx context.Context, to types.JID, data []byte, mimeType, filename string) error {
+	return nil
+}
+func (f *fakeSender) DeleteMessage(ctx context.Context, msg IncomingMessage) error { return nil }
+
 func TestExtractDocument(t *testing.T) {
 	// Document message
 	m := &waE2E.Message{

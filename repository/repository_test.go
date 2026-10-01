@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/martinezsaweczko/whatsappBot-golang/model"
 )
 
 // newTestDB creates a repository backed by a temporary SQLite database
@@ -182,5 +184,49 @@ func TestSQLInjectionResistance(t *testing.T) {
 	}
 	if len(subs) != 1 || subs[0].SubscriptionText != malicious {
 		t.Fatalf("injection string not stored literally: %+v", subs)
+	}
+}
+
+func TestScheduledCommandsLifecycle(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	cmd := model.ScheduledCommand{
+		Name:     "morning electricity",
+		Schedule: "0 8 * * *",
+		Command:  "electricidad",
+		GroupJID: "123456789@g.us",
+		Enabled:  true,
+	}
+
+	id, err := db.CreateScheduledCommand(ctx, cmd)
+	if err != nil {
+		t.Fatalf("CreateScheduledCommand failed: %v", err)
+	}
+	if id == 0 {
+		t.Fatal("expected non-zero id")
+	}
+
+	cmds, err := db.ListScheduledCommands(ctx)
+	if err != nil {
+		t.Fatalf("ListScheduledCommands failed: %v", err)
+	}
+	if len(cmds) != 1 {
+		t.Fatalf("expected 1 scheduled command, got %d", len(cmds))
+	}
+	if cmds[0].Name != cmd.Name {
+		t.Fatalf("unexpected name: %s", cmds[0].Name)
+	}
+
+	if err := db.DeleteScheduledCommand(ctx, id); err != nil {
+		t.Fatalf("DeleteScheduledCommand failed: %v", err)
+	}
+
+	cmds, err = db.ListScheduledCommands(ctx)
+	if err != nil {
+		t.Fatalf("ListScheduledCommands after delete failed: %v", err)
+	}
+	if len(cmds) != 0 {
+		t.Fatalf("expected 0 scheduled commands after delete, got %d", len(cmds))
 	}
 }

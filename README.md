@@ -43,6 +43,27 @@ make test              # go test -race ./...
 make check-swagger     # verify generated Swagger docs are up to date
 make migrate           # run goose migrations against local SQLite (default)
 make migrate-mysql MYSQL_DSN="user:pass@tcp(localhost:3306)/whatsappbot?parseTime=true"  # run MySQL migrations
+
+## Scheduled commands
+
+The bot can run WhatsApp commands automatically on a cron schedule in a group.
+Commands are executed directly by the bot (not sent as a message and re-routed),
+so media replies such as `electricidad` charts are posted as plain group messages.
+
+```bash
+# Create a schedule (Europe/Madrid timezone by default)
+curl -X POST http://localhost:9000/api/v1/scheduler \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"morning electricity","schedule":"0 8 * * *","command":"electricidad","group_jid":"123456789@g.us"}'
+
+# List schedules
+curl http://localhost:9000/api/v1/scheduler
+
+# Delete a schedule
+curl -X DELETE http://localhost:9000/api/v1/scheduler/1
+```
+
+Use `-scheduler-timezone` to change the timezone and `-scheduler-enabled=false` to disable the runner.
 ```
 
 Run (minimal flags):

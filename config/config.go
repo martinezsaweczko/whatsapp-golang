@@ -77,6 +77,8 @@ func LoadConfig() (*Config, *ConfigError) {
 	var commandTimeout int
 	var pairPhone, electricityCacheDir string
 	var pdfChannelJID, pdfCategory string
+	var schedulerTimezone string
+	var schedulerEnabled bool
 
 	// Flags public file server
 	flag.StringVar(&serverAddress, "http-address", "0.0.0.0", "Public file server address")
@@ -130,6 +132,8 @@ func LoadConfig() (*Config, *ConfigError) {
 	flag.StringVar(&electricityCacheDir, "electricity-cache-dir", "/tmp", "Directory for electricity price cache files")
 	flag.StringVar(&pdfChannelJID, "pdf-channel-jid", "", "WhatsApp group/channel JID that receives automatic PDF downloads")
 	flag.StringVar(&pdfCategory, "pdf-category", "nacional", "Kiosk category where downloaded PDFs are saved")
+	flag.StringVar(&schedulerTimezone, "scheduler-timezone", "Europe/Madrid", "Timezone used for scheduled command cron expressions")
+	flag.BoolVar(&schedulerEnabled, "scheduler-enabled", true, "Enable the scheduled command runner")
 
 	flag.Parse()
 
@@ -214,6 +218,8 @@ func LoadConfig() (*Config, *ConfigError) {
 		ElectricityCacheDir:    electricityCacheDir,
 		PDFChannelJID:          pdfChannelJID,
 		PDFCategory:            pdfCategory,
+		SchedulerTimezone:      schedulerTimezone,
+		SchedulerEnabled:       schedulerEnabled,
 	}
 
 	if err := config.Bot.validate(); err != nil {
