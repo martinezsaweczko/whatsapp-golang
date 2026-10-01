@@ -130,22 +130,50 @@ make migrate DB_DSN=/data/db.sqlite
 
 The app can create the database and run migrations automatically. You only need a user with `CREATE DATABASE` permission (root works).
 
+#### Quick start with a local MySQL container
+
 ```bash
-./build/main ... \
+# Start MySQL
+podman run -d --name mysql-whatsappbot \
+  -e MYSQL_ROOT_PASSWORD=rootpass \
+  -p 3306:3306 \
+  docker.io/library/mysql:8
+
+# Wait for MySQL to be ready
+podman logs -f mysql-whatsappbot
+```
+
+#### Run the bot with MySQL (root user, auto-creates DB and tables)
+
+```bash
+./build/main \
   -db-driver mysql \
-  -db-dsn "user:pass@tcp(localhost:3306)/whatsappbot?parseTime=true" \
+  -db-dsn "root:rootpass@tcp(localhost:3306)/whatsappbot?parseTime=true" \
   -db-auto-create true \
+  -session-db-path /tmp/session.db \
   ...
 ```
 
-If you prefer to create the database yourself or the user does not have `CREATE DATABASE` permission:
+#### Using a non-root user
+
+Create the database first, then run with `-db-auto-create false`:
 
 ```bash
-mysql -u root -p -e "CREATE DATABASE whatsappbot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-./build/main ... -db-driver mysql -db-dsn "user:pass@tcp(localhost:3306)/whatsappbot?parseTime=true" -db-auto-create false ...
+podman exec mysql-whatsappbot mysql -u root -prootpass -e \
+  "CREATE DATABASE IF NOT EXISTS whatsappbot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; \
+   CREATE USER IF NOT EXISTS 'bot'@'%' IDENTIFIED BY 'botpass'; \
+   GRANT ALL PRIVILEGES ON whatsappbot.* TO 'bot'@'%'; \
+   FLUSH PRIVILEGES;"
+
+./build/main \
+  -db-driver mysql \
+  -db-dsn "bot:botpass@tcp(localhost:3306)/whatsappbot?parseTime=true" \
+  -db-auto-create false \
+  -session-db-path /tmp/session.db \
+  ...
 ```
 
-Run migrations manually:
+#### Run migrations manually
 
 ```bash
 make migrate-mysql MYSQL_DSN="user:pass@tcp(localhost:3306)/whatsappbot?parseTime=true"
