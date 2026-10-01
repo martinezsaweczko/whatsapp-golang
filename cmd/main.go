@@ -81,8 +81,9 @@ func main() {
 
 	// Open the application database
 	repo, repoErr := repository.New(repository.Config{
-		Driver: cfg.Bot.DBDriver,
-		DSN:    cfg.Bot.DatabaseDSN(),
+		Driver:     cfg.Bot.DBDriver,
+		DSN:        cfg.Bot.DatabaseDSN(),
+		AutoCreate: cfg.Bot.DBAutoCreate,
 	}, log)
 	if repoErr != nil {
 		log.Error("Database setup error", "error", repoErr)

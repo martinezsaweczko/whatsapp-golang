@@ -18,8 +18,9 @@ func newTestDB(t *testing.T) *DB {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
 	db, err := New(Config{
-		Driver: "sqlite",
-		DSN:    fmt.Sprintf("file:%s?_foreign_keys=on", dbPath),
+		Driver:     "sqlite",
+		DSN:        fmt.Sprintf("file:%s?_foreign_keys=on", dbPath),
+		AutoCreate: true,
 	}, log)
 	if err != nil {
 		t.Fatalf("failed to create test DB: %v", err)
@@ -184,6 +185,39 @@ func TestSQLInjectionResistance(t *testing.T) {
 	}
 	if len(subs) != 1 || subs[0].SubscriptionText != malicious {
 		t.Fatalf("injection string not stored literally: %+v", subs)
+	}
+}
+
+func TestValidateDBName(t *testing.T) {
+	tests := []struct {
+		name    string
+		dbName  string
+		wantErr bool
+	}{
+		{"valid letters", "whatsappbot", false},
+		{"valid underscore", "whatsapp_bot", false},
+		{"valid hyphen", "whatsapp-bot", false},
+		{"empty", "", true},
+		{"invalid space", "whatsapp bot", true},
+		{"invalid semicolon", "whatsapp;bot", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateDBName(tc.dbName)
+			if tc.wantErr && err == nil {
+				t.Fatal("expected error")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestCreateMySQLDatabaseIfNeededInvalidDSN(t *testing.T) {
+	err := createMySQLDatabaseIfNeeded("not-a-valid-dsn")
+	if err == nil {
+		t.Fatal("expected error for invalid DSN")
 	}
 }
 

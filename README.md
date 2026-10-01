@@ -128,11 +128,21 @@ make migrate DB_DSN=/data/db.sqlite
 
 ### MySQL
 
+The app can create the database and run migrations automatically. You only need a user with `CREATE DATABASE` permission (root works).
+
 ```bash
 ./build/main ... \
   -db-driver mysql \
   -db-dsn "user:pass@tcp(localhost:3306)/whatsappbot?parseTime=true" \
+  -db-auto-create true \
   ...
+```
+
+If you prefer to create the database yourself or the user does not have `CREATE DATABASE` permission:
+
+```bash
+mysql -u root -p -e "CREATE DATABASE whatsappbot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+./build/main ... -db-driver mysql -db-dsn "user:pass@tcp(localhost:3306)/whatsappbot?parseTime=true" -db-auto-create false ...
 ```
 
 Run migrations manually:

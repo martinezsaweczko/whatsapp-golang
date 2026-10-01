@@ -31,6 +31,7 @@ type BotConfig struct {
 	DBDriver      string // Application database driver (sqlite or mysql)
 	DBPath        string // Application database path (sqlite only)
 	DBDSN         string // Application database DSN (overrides db-path; required for mysql)
+	DBAutoCreate  bool   // Automatically create the MySQL database if it does not exist
 	SessionDBPath string // whatsmeow session store
 
 	// External APIs

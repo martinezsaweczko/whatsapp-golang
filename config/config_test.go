@@ -22,6 +22,7 @@ func validBotConfig() BotConfig {
 		CommandTimeout:         60,
 		SchedulerTimezone:      "Europe/Madrid",
 		SchedulerEnabled:       true,
+		DBAutoCreate:           true,
 	}
 }
 

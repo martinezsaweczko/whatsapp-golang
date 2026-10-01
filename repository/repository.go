@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	_ "github.com/go-sql-driver/mysql"
+	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
@@ -20,8 +20,9 @@ var migrationsFS embed.FS
 
 // Config holds the database connection and migration settings.
 type Config struct {
-	Driver string // "sqlite" or "mysql"
-	DSN    string // driver-specific data source name
+	Driver     string // "sqlite" or "mysql"
+	DSN        string // driver-specific data source name
+	AutoCreate bool   // automatically create the MySQL database if it does not exist
 }
 
 // DB provides access to the application database.
@@ -32,6 +33,53 @@ type DB struct {
 	log     *slog.Logger
 }
 
+// createMySQLDatabaseIfNeeded parses the MySQL DSN, connects without a database
+// name and creates the database if it does not already exist.
+func createMySQLDatabaseIfNeeded(dsn string) error {
+	cfg, err := mysqldriver.ParseDSN(dsn)
+	if err != nil {
+		return fmt.Errorf("failed to parse mysql dsn: %w", err)
+	}
+
+	dbName := cfg.DBName
+	if dbName == "" {
+		return nil
+	}
+
+	cfg.DBName = ""
+	adminDSN := cfg.FormatDSN()
+
+	db, err := sql.Open("mysql", adminDSN)
+	if err != nil {
+		return fmt.Errorf("failed to open mysql admin connection: %w", err)
+	}
+	defer db.Close()
+
+	if err := validateDBName(dbName); err != nil {
+		return err
+	}
+
+	_, err = db.Exec(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci", dbName))
+	if err != nil {
+		return fmt.Errorf("failed to create database %q: %w", dbName, err)
+	}
+	return nil
+}
+
+// validateDBName ensures the database name only contains safe characters.
+func validateDBName(name string) error {
+	if name == "" {
+		return fmt.Errorf("database name is empty")
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return fmt.Errorf("invalid character %q in database name %q", r, name)
+	}
+	return nil
+}
+
 // New opens the database, runs pending migrations, and returns a repository.
 func New(cfg Config, log *slog.Logger) (*DB, error) {
 	if cfg.Driver == "" {
@@ -39,6 +87,12 @@ func New(cfg Config, log *slog.Logger) (*DB, error) {
 	}
 	if cfg.DSN == "" {
 		return nil, fmt.Errorf("database DSN is required")
+	}
+
+	if cfg.Driver == "mysql" && cfg.AutoCreate {
+		if err := createMySQLDatabaseIfNeeded(cfg.DSN); err != nil {
+			return nil, fmt.Errorf("failed to create mysql database: %w", err)
+		}
 	}
 
 	db, err := sql.Open(cfg.Driver, cfg.DSN)
