@@ -17,7 +17,7 @@ func (d *DB) CreateScheduledCommand(ctx context.Context, cmd model.ScheduledComm
 	_, err := d.db.ExecContext(ctx,
 		`INSERT INTO scheduled_commands (id, name, schedule, command, group_jid, enabled)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
-		cmd.ID.String(), cmd.Name, cmd.Schedule, cmd.Command, cmd.GroupJID, cmd.Enabled)
+		d.uuidValue(cmd.ID), cmd.Name, cmd.Schedule, cmd.Command, cmd.GroupJID, cmd.Enabled)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("failed to create scheduled command: %w", err)
 	}
@@ -38,11 +38,11 @@ func (d *DB) ListScheduledCommands(ctx context.Context) ([]model.ScheduledComman
 	var cmds []model.ScheduledCommand
 	for rows.Next() {
 		var c model.ScheduledCommand
-		var idStr string
-		if err := rows.Scan(&idStr, &c.Name, &c.Schedule, &c.Command, &c.GroupJID, &c.Enabled, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		var rawID interface{}
+		if err := rows.Scan(&rawID, &c.Name, &c.Schedule, &c.Command, &c.GroupJID, &c.Enabled, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan scheduled command: %w", err)
 		}
-		c.ID, err = uuid.Parse(idStr)
+		c.ID, err = d.scanUUID(rawID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse scheduled command id: %w", err)
 		}
@@ -53,7 +53,7 @@ func (d *DB) ListScheduledCommands(ctx context.Context) ([]model.ScheduledComman
 
 // DeleteScheduledCommand removes a scheduled command by ID.
 func (d *DB) DeleteScheduledCommand(ctx context.Context, id uuid.UUID) error {
-	res, err := d.db.ExecContext(ctx, "DELETE FROM scheduled_commands WHERE id = ?", id.String())
+	res, err := d.db.ExecContext(ctx, "DELETE FROM scheduled_commands WHERE id = ?", d.uuidValue(id))
 	if err != nil {
 		return fmt.Errorf("failed to delete scheduled command: %w", err)
 	}

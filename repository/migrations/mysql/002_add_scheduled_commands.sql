@@ -1,6 +1,6 @@
 -- +goose Up
 CREATE TABLE IF NOT EXISTS scheduled_commands (
-    id CHAR(36) PRIMARY KEY,
+    id BINARY(16) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     schedule VARCHAR(255) NOT NULL,
     command VARCHAR(255) NOT NULL,

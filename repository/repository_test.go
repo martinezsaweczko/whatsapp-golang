@@ -222,6 +222,32 @@ func TestCreateMySQLDatabaseIfNeededInvalidDSN(t *testing.T) {
 	}
 }
 
+func TestScanUUID(t *testing.T) {
+	db, err := New(Config{Driver: "sqlite", DSN: "file::memory:?_foreign_keys=on"}, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
+	if err != nil {
+		t.Fatalf("failed to create test DB: %v", err)
+	}
+	defer db.Close()
+
+	u := uuid.Must(uuid.NewV7())
+
+	fromString, err := db.scanUUID(u.String())
+	if err != nil {
+		t.Fatalf("scanUUID string failed: %v", err)
+	}
+	if fromString != u {
+		t.Fatalf("scanUUID string mismatch: got %s, want %s", fromString, u)
+	}
+
+	fromBytes, err := db.scanUUID(u[:])
+	if err != nil {
+		t.Fatalf("scanUUID bytes failed: %v", err)
+	}
+	if fromBytes != u {
+		t.Fatalf("scanUUID bytes mismatch: got %s, want %s", fromBytes, u)
+	}
+}
+
 func TestScheduledCommandsLifecycle(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()

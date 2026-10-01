@@ -24,6 +24,34 @@ func newUUID() uuid.UUID {
 	return uuid.Must(uuid.NewV7())
 }
 
+// uuidValue returns the UUID in the format expected by the active driver:
+// BINARY(16) bytes for MySQL, text for SQLite.
+func (d *DB) uuidValue(u uuid.UUID) interface{} {
+	if d.dialect == "mysql" {
+		return u[:]
+	}
+	return u.String()
+}
+
+// scanUUID reads a UUID from a database value (string for SQLite, []byte for MySQL).
+func (d *DB) scanUUID(src interface{}) (uuid.UUID, error) {
+	switch v := src.(type) {
+	case string:
+		return uuid.Parse(v)
+	case []byte:
+		if len(v) == 16 {
+			var u uuid.UUID
+			copy(u[:], v)
+			return u, nil
+		}
+		return uuid.Parse(string(v))
+	case nil:
+		return uuid.Nil, fmt.Errorf("uuid value is null")
+	default:
+		return uuid.Nil, fmt.Errorf("unsupported uuid source type %T", src)
+	}
+}
+
 // Config holds the database connection and migration settings.
 type Config struct {
 	Driver     string // "sqlite" or "mysql"
@@ -158,7 +186,7 @@ func (d *DB) Close() error {
 func (d *DB) SaveSubscription(ctx context.Context, subscriptionText, user string) error {
 	_, err := d.db.ExecContext(ctx,
 		"INSERT INTO subscriptions (id, subscription_text, user) VALUES (?, ?, ?)",
-		newUUID().String(), subscriptionText, user)
+		d.uuidValue(newUUID()), subscriptionText, user)
 	if err != nil {
 		return fmt.Errorf("failed to save subscription: %w", err)
 	}
@@ -186,11 +214,11 @@ func (d *DB) ReturnSubscriptions(ctx context.Context, user string) ([]model.Subs
 	var subs []model.Subscription
 	for rows.Next() {
 		var s model.Subscription
-		var idStr string
-		if err := rows.Scan(&idStr, &s.SubscriptionText, &s.User, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		var rawID interface{}
+		if err := rows.Scan(&rawID, &s.SubscriptionText, &s.User, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan subscription: %w", err)
 		}
-		s.ID, err = uuid.Parse(idStr)
+		s.ID, err = d.scanUUID(rawID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse subscription id: %w", err)
 		}
@@ -232,7 +260,7 @@ func (d *DB) CountTokenUses(ctx context.Context, jwt string) (int, error) {
 
 // SaveToken records a JWT usage.
 func (d *DB) SaveToken(ctx context.Context, jwt string) error {
-	_, err := d.db.ExecContext(ctx, "INSERT INTO jwt_used (id, jwt) VALUES (?, ?)", newUUID().String(), jwt)
+	_, err := d.db.ExecContext(ctx, "INSERT INTO jwt_used (id, jwt) VALUES (?, ?)", d.uuidValue(newUUID()), jwt)
 	if err != nil {
 		return fmt.Errorf("failed to save token: %w", err)
 	}
@@ -259,7 +287,7 @@ func (d *DB) CleanJWT(ctx context.Context) error {
 // ReportFileUsage records an access attempt to a file with its HTTP result code.
 func (d *DB) ReportFileUsage(ctx context.Context, file string, result int) error {
 	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO file_usage (id, file, result) VALUES (?, ?, ?)", newUUID().String(), file, result)
+		"INSERT INTO file_usage (id, file, result) VALUES (?, ?, ?)", d.uuidValue(newUUID()), file, result)
 	if err != nil {
 		return fmt.Errorf("failed to report file usage: %w", err)
 	}
@@ -269,7 +297,7 @@ func (d *DB) ReportFileUsage(ctx context.Context, file string, result int) error
 // ReportUserUsage records that a user requested a download link for a file.
 func (d *DB) ReportUserUsage(ctx context.Context, user, file string) error {
 	_, err := d.db.ExecContext(ctx,
-		"INSERT INTO user_usage (id, user, file) VALUES (?, ?, ?)", newUUID().String(), user, file)
+		"INSERT INTO user_usage (id, user, file) VALUES (?, ?, ?)", d.uuidValue(newUUID()), user, file)
 	if err != nil {
 		return fmt.Errorf("failed to report user usage: %w", err)
 	}
