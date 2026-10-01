@@ -70,6 +70,7 @@ func LoadConfig() (*Config, *ConfigError) {
 	var nacionalFolder, internacionalFolder, magazineFolder string
 	var retentionNacional, retentionInternacional, retentionMagazine int
 	var urlServer, dbPath, dbDSN, dbDriver, sessionDBPath string
+	var dbAutoCreate bool
 	var openAIAPIKey, openAIModel string
 	var weatherAPIKey, weatherAPIURL string
 	var weatherNoteWords int
@@ -77,6 +78,8 @@ func LoadConfig() (*Config, *ConfigError) {
 	var commandTimeout int
 	var pairPhone, electricityCacheDir string
 	var pdfChannelJID, pdfCategory string
+	var schedulerTimezone string
+	var schedulerEnabled bool
 
 	// Flags public file server
 	flag.StringVar(&serverAddress, "http-address", "0.0.0.0", "Public file server address")
@@ -117,6 +120,7 @@ func LoadConfig() (*Config, *ConfigError) {
 	flag.StringVar(&dbDriver, "db-driver", "sqlite", "Application database driver (sqlite or mysql)")
 	flag.StringVar(&dbPath, "db-path", "/tmp/db.sqlite", "Application database path (sqlite only)")
 	flag.StringVar(&dbDSN, "db-dsn", "", "Application database DSN (overrides db-path; required for mysql)")
+	flag.BoolVar(&dbAutoCreate, "db-auto-create", true, "Automatically create the MySQL database if it does not exist")
 	flag.StringVar(&sessionDBPath, "session-db-path", "/tmp/session.db", "WhatsApp session database path")
 	flag.StringVar(&openAIAPIKey, "openai-api-key", "", "OpenAI API key")
 	flag.StringVar(&openAIModel, "openai-model", "gpt-4o-mini", "OpenAI model")
@@ -130,6 +134,8 @@ func LoadConfig() (*Config, *ConfigError) {
 	flag.StringVar(&electricityCacheDir, "electricity-cache-dir", "/tmp", "Directory for electricity price cache files")
 	flag.StringVar(&pdfChannelJID, "pdf-channel-jid", "", "WhatsApp group/channel JID that receives automatic PDF downloads")
 	flag.StringVar(&pdfCategory, "pdf-category", "nacional", "Kiosk category where downloaded PDFs are saved")
+	flag.StringVar(&schedulerTimezone, "scheduler-timezone", "Europe/Madrid", "Timezone used for scheduled command cron expressions")
+	flag.BoolVar(&schedulerEnabled, "scheduler-enabled", true, "Enable the scheduled command runner")
 
 	flag.Parse()
 
@@ -201,6 +207,7 @@ func LoadConfig() (*Config, *ConfigError) {
 		DBPath:                 dbPath,
 		DBDriver:               dbDriver,
 		DBDSN:                  dbDSN,
+		DBAutoCreate:           dbAutoCreate,
 		SessionDBPath:          sessionDBPath,
 		OpenAIAPIKey:           openAIAPIKey,
 		OpenAIModel:            openAIModel,
@@ -214,6 +221,8 @@ func LoadConfig() (*Config, *ConfigError) {
 		ElectricityCacheDir:    electricityCacheDir,
 		PDFChannelJID:          pdfChannelJID,
 		PDFCategory:            pdfCategory,
+		SchedulerTimezone:      schedulerTimezone,
+		SchedulerEnabled:       schedulerEnabled,
 	}
 
 	if err := config.Bot.validate(); err != nil {

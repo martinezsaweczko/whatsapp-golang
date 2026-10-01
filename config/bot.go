@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"go.mau.fi/whatsmeow/types"
 )
@@ -30,6 +31,7 @@ type BotConfig struct {
 	DBDriver      string // Application database driver (sqlite or mysql)
 	DBPath        string // Application database path (sqlite only)
 	DBDSN         string // Application database DSN (overrides db-path; required for mysql)
+	DBAutoCreate  bool   // Automatically create the MySQL database if it does not exist
 	SessionDBPath string // whatsmeow session store
 
 	// External APIs
@@ -57,6 +59,12 @@ type BotConfig struct {
 
 	// PDFCategory is the kiosk category where downloaded PDFs are saved.
 	PDFCategory string
+
+	// SchedulerTimezone is the IANA timezone used for cron schedules.
+	SchedulerTimezone string
+
+	// SchedulerEnabled controls whether the scheduled command runner starts.
+	SchedulerEnabled bool
 }
 
 func (b *BotConfig) validate() error {
@@ -109,6 +117,11 @@ func (b *BotConfig) validate() error {
 	}
 	if b.CommandTimeout <= 0 {
 		errs = append(errs, "command timeout must be positive")
+	}
+	if b.SchedulerTimezone == "" {
+		errs = append(errs, "scheduler timezone cannot be empty")
+	} else if _, err := time.LoadLocation(b.SchedulerTimezone); err != nil {
+		errs = append(errs, fmt.Sprintf("invalid scheduler timezone %q", b.SchedulerTimezone))
 	}
 
 	if b.PDFChannelJID != "" {

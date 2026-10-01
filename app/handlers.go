@@ -16,6 +16,7 @@ import (
 	"github.com/martinezsaweczko/whatsappBot-golang/services/electricity"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/imagegen"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/kiosk"
+	"github.com/martinezsaweczko/whatsappBot-golang/services/scheduler"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/subscription"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/tts"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/weather"
@@ -149,6 +150,24 @@ func (app *App) initAndWire() error {
 		return fmt.Errorf("failed to create electricity service: %w", err)
 	}
 
+	var schedulerSvc *scheduler.Service
+	if cfg.Bot.SchedulerEnabled {
+		schedulerSvc, err = scheduler.New(
+			repo,
+			app.router,
+			app.waClient,
+			log,
+			tp,
+			scheduler.Config{
+				Timezone: cfg.Bot.SchedulerTimezone,
+				Enabled:  cfg.Bot.SchedulerEnabled,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create scheduler service: %w", err)
+		}
+	}
+
 	// ----- HTTP handlers -----
 	healthHandlerConf := handlers.HealthHandlerConfig{
 		Log:           log,
@@ -223,6 +242,19 @@ func (app *App) initAndWire() error {
 		return fmt.Errorf("failed to create whatsapp handler: %w", err)
 	}
 
+	var schedulerHandler *handlers.SchedulerHandler
+	if schedulerSvc != nil {
+		schedulerConf := handlers.SchedulerHandlerConfig{
+			Log:      log,
+			Service:  schedulerSvc,
+			BasePath: app.basePath,
+		}
+		schedulerHandler, err = schedulerConf.NewSchedulerHandler()
+		if err != nil {
+			return fmt.Errorf("failed to create scheduler handler: %w", err)
+		}
+	}
+
 	// ----- Routes -----
 	tracingMiddleware := middleware.TracingMiddleware()
 	metricsMiddleware := middleware.MetricsMiddleware(httpMetrics)
@@ -251,6 +283,10 @@ func (app *App) initAndWire() error {
 		tracingMiddleware, metricsMiddleware, loggingMiddleware)
 	whatsappHandler.RegisterRoutes(app.internalServer,
 		tracingMiddleware, metricsMiddleware, loggingMiddleware)
+	if schedulerHandler != nil {
+		schedulerHandler.RegisterRoutes(app.internalServer,
+			tracingMiddleware, metricsMiddleware, loggingMiddleware)
+	}
 
 	// ----- WhatsApp commands -----
 	for _, cmd := range kioskSvc.Commands(cfg.Bot.BotNumber, app.buildInfo.Version) {
@@ -297,6 +333,10 @@ func (app *App) initAndWire() error {
 		log.Error("Logged out from WhatsApp, exiting to trigger a fresh login")
 		os.Exit(1)
 	})
+
+	if schedulerSvc != nil {
+		app.WithScheduler(schedulerSvc)
+	}
 
 	log.Info("Application wired successfully",
 		"commands", len(kioskSvc.Commands(cfg.Bot.BotNumber, app.buildInfo.Version))+

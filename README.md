@@ -43,6 +43,27 @@ make test              # go test -race ./...
 make check-swagger     # verify generated Swagger docs are up to date
 make migrate           # run goose migrations against local SQLite (default)
 make migrate-mysql MYSQL_DSN="user:pass@tcp(localhost:3306)/whatsappbot?parseTime=true"  # run MySQL migrations
+
+## Scheduled commands
+
+The bot can run WhatsApp commands automatically on a cron schedule in a group.
+Commands are executed directly by the bot (not sent as a message and re-routed),
+so media replies such as `electricidad` charts are posted as plain group messages.
+
+```bash
+# Create a schedule (Europe/Madrid timezone by default)
+curl -X POST http://localhost:9000/api/v1/scheduler \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"morning electricity","schedule":"0 8 * * *","command":"electricidad","group_jid":"123456789@g.us"}'
+
+# List schedules
+curl http://localhost:9000/api/v1/scheduler
+
+# Delete a schedule
+curl -X DELETE http://localhost:9000/api/v1/scheduler/1
+```
+
+Use `-scheduler-timezone` to change the timezone and `-scheduler-enabled=false` to disable the runner.
 ```
 
 Run (minimal flags):
@@ -107,14 +128,52 @@ make migrate DB_DSN=/data/db.sqlite
 
 ### MySQL
 
+The app can create the database and run migrations automatically. You only need a user with `CREATE DATABASE` permission (root works).
+
+#### Quick start with a local MySQL container
+
 ```bash
-./build/main ... \
+# Start MySQL
+podman run -d --name mysql-whatsappbot \
+  -e MYSQL_ROOT_PASSWORD=rootpass \
+  -p 3306:3306 \
+  docker.io/library/mysql:8
+
+# Wait for MySQL to be ready
+podman logs -f mysql-whatsappbot
+```
+
+#### Run the bot with MySQL (root user, auto-creates DB and tables)
+
+```bash
+./build/main \
   -db-driver mysql \
-  -db-dsn "user:pass@tcp(localhost:3306)/whatsappbot?parseTime=true" \
+  -db-dsn "root:rootpass@tcp(localhost:3306)/whatsappbot?parseTime=true" \
+  -db-auto-create true \
+  -session-db-path /tmp/session.db \
   ...
 ```
 
-Run migrations manually:
+#### Using a non-root user
+
+Create the database first, then run with `-db-auto-create false`:
+
+```bash
+podman exec mysql-whatsappbot mysql -u root -prootpass -e \
+  "CREATE DATABASE IF NOT EXISTS whatsappbot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; \
+   CREATE USER IF NOT EXISTS 'bot'@'%' IDENTIFIED BY 'botpass'; \
+   GRANT ALL PRIVILEGES ON whatsappbot.* TO 'bot'@'%'; \
+   FLUSH PRIVILEGES;"
+
+./build/main \
+  -db-driver mysql \
+  -db-dsn "bot:botpass@tcp(localhost:3306)/whatsappbot?parseTime=true" \
+  -db-auto-create false \
+  -session-db-path /tmp/session.db \
+  ...
+```
+
+#### Run migrations manually
 
 ```bash
 make migrate-mysql MYSQL_DSN="user:pass@tcp(localhost:3306)/whatsappbot?parseTime=true"

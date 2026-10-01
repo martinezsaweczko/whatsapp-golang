@@ -7,6 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/martinezsaweczko/whatsappBot-golang/model"
 )
 
 // newTestDB creates a repository backed by a temporary SQLite database
@@ -16,8 +19,9 @@ func newTestDB(t *testing.T) *DB {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
 	db, err := New(Config{
-		Driver: "sqlite",
-		DSN:    fmt.Sprintf("file:%s?_foreign_keys=on", dbPath),
+		Driver:     "sqlite",
+		DSN:        fmt.Sprintf("file:%s?_foreign_keys=on", dbPath),
+		AutoCreate: true,
 	}, log)
 	if err != nil {
 		t.Fatalf("failed to create test DB: %v", err)
@@ -182,5 +186,111 @@ func TestSQLInjectionResistance(t *testing.T) {
 	}
 	if len(subs) != 1 || subs[0].SubscriptionText != malicious {
 		t.Fatalf("injection string not stored literally: %+v", subs)
+	}
+}
+
+func TestValidateDBName(t *testing.T) {
+	tests := []struct {
+		name    string
+		dbName  string
+		wantErr bool
+	}{
+		{"valid letters", "whatsappbot", false},
+		{"valid underscore", "whatsapp_bot", false},
+		{"valid hyphen", "whatsapp-bot", false},
+		{"empty", "", true},
+		{"invalid space", "whatsapp bot", true},
+		{"invalid semicolon", "whatsapp;bot", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateDBName(tc.dbName)
+			if tc.wantErr && err == nil {
+				t.Fatal("expected error")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestCreateMySQLDatabaseIfNeededInvalidDSN(t *testing.T) {
+	err := createMySQLDatabaseIfNeeded("not-a-valid-dsn")
+	if err == nil {
+		t.Fatal("expected error for invalid DSN")
+	}
+}
+
+func TestScanUUID(t *testing.T) {
+	db, err := New(Config{Driver: "sqlite", DSN: "file::memory:?_foreign_keys=on"}, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
+	if err != nil {
+		t.Fatalf("failed to create test DB: %v", err)
+	}
+	defer db.Close()
+
+	u := uuid.Must(uuid.NewV7())
+
+	fromString, err := db.scanUUID(u.String())
+	if err != nil {
+		t.Fatalf("scanUUID string failed: %v", err)
+	}
+	if fromString != u {
+		t.Fatalf("scanUUID string mismatch: got %s, want %s", fromString, u)
+	}
+
+	fromBytes, err := db.scanUUID(u[:])
+	if err != nil {
+		t.Fatalf("scanUUID bytes failed: %v", err)
+	}
+	if fromBytes != u {
+		t.Fatalf("scanUUID bytes mismatch: got %s, want %s", fromBytes, u)
+	}
+}
+
+func TestScheduledCommandsLifecycle(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	cmd := model.ScheduledCommand{
+		Name:     "morning electricity",
+		Schedule: "0 8 * * *",
+		Command:  "electricidad",
+		GroupJID: "123456789@g.us",
+		Enabled:  true,
+	}
+
+	id, err := db.CreateScheduledCommand(ctx, cmd)
+	if err != nil {
+		t.Fatalf("CreateScheduledCommand failed: %v", err)
+	}
+	if id == uuid.Nil {
+		t.Fatal("expected non-nil id")
+	}
+
+	cmds, err := db.ListScheduledCommands(ctx)
+	if err != nil {
+		t.Fatalf("ListScheduledCommands failed: %v", err)
+	}
+	if len(cmds) != 1 {
+		t.Fatalf("expected 1 scheduled command, got %d", len(cmds))
+	}
+	if cmds[0].Name != cmd.Name {
+		t.Fatalf("unexpected name: %s", cmds[0].Name)
+	}
+	if cmds[0].ID != id {
+		t.Fatalf("unexpected id: got %s, want %s", cmds[0].ID, id)
+	}
+
+	if err := db.DeleteScheduledCommand(ctx, id); err != nil {
+		t.Fatalf("DeleteScheduledCommand failed: %v", err)
+	}
+
+	cmds, err = db.ListScheduledCommands(ctx)
+	if err != nil {
+		t.Fatalf("ListScheduledCommands after delete failed: %v", err)
+	}
+	if len(cmds) != 0 {
+		t.Fatalf("expected 0 scheduled commands after delete, got %d", len(cmds))
 	}
 }

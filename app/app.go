@@ -15,6 +15,7 @@ import (
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
 	"github.com/martinezsaweczko/whatsappBot-golang/o11"
 	"github.com/martinezsaweczko/whatsappBot-golang/repository"
+	"github.com/martinezsaweczko/whatsappBot-golang/services/scheduler"
 	"github.com/martinezsaweczko/whatsappBot-golang/whatsapp"
 )
 
@@ -41,6 +42,7 @@ type App struct {
 	observability  *o11.ObservabilityInst
 	buildInfo      model.BuildInfo
 	basePath       string
+	scheduler      *scheduler.Service
 }
 
 func NewApp(cfg *config.Config) *App {
@@ -94,6 +96,12 @@ func (app *App) WithBasePath(basePath string) *App {
 	return app
 }
 
+// WithScheduler sets the scheduler service and returns the app instance for chaining.
+func (app *App) WithScheduler(s *scheduler.Service) *App {
+	app.scheduler = s
+	return app
+}
+
 func (app *App) Run() error {
 	// Validate required dependencies
 	if app.publicServer == nil || app.internalServer == nil {
@@ -127,6 +135,13 @@ func (app *App) Run() error {
 		return fmt.Errorf("failed to connect to WhatsApp: %w", err)
 	}
 
+	// Start the scheduler after WhatsApp is connected so jobs can send messages.
+	if app.scheduler != nil {
+		if err := app.scheduler.Start(app.ctx); err != nil {
+			return fmt.Errorf("failed to start scheduler: %w", err)
+		}
+	}
+
 	app.log.Info("Application started",
 		"public_port", app.config.HttpServer.Port,
 		"internal_port", app.config.InternalServer.Port,
@@ -158,6 +173,11 @@ func (app *App) shutdown() error {
 	if err := app.internalServer.Stop(shutdownCtx); err != nil {
 		app.log.Error("Error during internal server shutdown", "error", err)
 		shutdownErr = err
+	}
+
+	// Stop the scheduler before waiting for in-flight commands.
+	if app.scheduler != nil {
+		app.scheduler.Stop()
 	}
 
 	// Wait for in-flight WhatsApp commands, then disconnect

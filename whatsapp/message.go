@@ -21,6 +21,19 @@ type IncomingMessage struct {
 	HasDocument      bool            // Whether the message carries a document
 	DocumentMIMEType string          // Document MIME type, if HasDocument is true
 	DocumentFileName string          // Document filename, if HasDocument is true
+	Synthetic        bool            // True when the message is not a real incoming event (e.g. scheduled command)
+}
+
+// NewSyntheticMessage creates an IncomingMessage for a scheduled or otherwise
+// internally generated command. It has no original message to quote.
+func NewSyntheticMessage(chat, sender types.JID, body string) IncomingMessage {
+	return IncomingMessage{
+		Chat:      chat,
+		Sender:    sender,
+		Body:      body,
+		IsGroup:   chat.Server == types.GroupServer,
+		Synthetic: true,
+	}
 }
 
 // NewIncomingMessage converts a whatsmeow message event into the domain type

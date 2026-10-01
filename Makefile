@@ -49,6 +49,9 @@ build: clean check check-swagger keys
 	go build -ldflags "$(LDFLAGS)" -o build/main cmd/main.go
 
 binary: swagger
+	mkdir -p /tmp/periodico/nacional
+	mkdir -p /tmp/periodico/internacional
+	mkdir -p /tmp/periodico/magazine
 	go build -ldflags "$(LDFLAGS)" -o build/main cmd/main.go
 
 check:

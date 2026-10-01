@@ -92,6 +92,41 @@ func (r *Router) Register(name string, pattern *regexp.Regexp, handler CommandHa
 	r.log.Debug("Registered command", "name", name, "pattern", pattern.String())
 }
 
+// Match returns the name of the first command whose pattern matches the given body.
+// It returns an error when no command matches.
+func (r *Router) Match(body string) (string, error) {
+	for _, cmd := range r.commands {
+		if cmd.Pattern.MatchString(body) {
+			return cmd.Name, nil
+		}
+	}
+	return "", fmt.Errorf("no command matches %q", body)
+}
+
+// ExecuteCommand runs the first command whose pattern matches body against a
+// synthetic IncomingMessage. It is used for scheduled/internal commands that do
+// not originate from a real WhatsApp event. The caller provides the bot's own
+// JID to use as the synthetic sender.
+func (r *Router) ExecuteCommand(ctx context.Context, body string, chat, senderJID types.JID) error {
+	if r.sender == nil {
+		return fmt.Errorf("router sender not set")
+	}
+
+	var matched Command
+	for _, cmd := range r.commands {
+		if cmd.Pattern.MatchString(body) {
+			matched = cmd
+			break
+		}
+	}
+	if matched.Handler == nil {
+		return fmt.Errorf("no command matches %q", body)
+	}
+
+	msg := NewSyntheticMessage(chat, senderJID, body)
+	return matched.Handler(ctx, r.sender, msg)
+}
+
 // SetFallback sets the handler invoked when no command matches and the bot is mentioned
 func (r *Router) SetFallback(handler CommandHandler) {
 	r.fallback = handler

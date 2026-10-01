@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
 	"github.com/martinezsaweczko/whatsappBot-golang/whatsapp"
 	"go.mau.fi/whatsmeow/types"
@@ -135,8 +136,8 @@ func TestDelete(t *testing.T) {
 
 func TestList(t *testing.T) {
 	store := &fakeStore{subs: []model.Subscription{
-		{ID: 1, SubscriptionText: "Mundo", User: "u"},
-		{ID: 2, SubscriptionText: "Pais", User: "u"},
+		{ID: uuid.Must(uuid.NewV7()), SubscriptionText: "Mundo", User: "u"},
+		{ID: uuid.Must(uuid.NewV7()), SubscriptionText: "Pais", User: "u"},
 	}}
 	svc, _ := newTestService(store)
 
