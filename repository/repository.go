@@ -14,6 +14,8 @@ import (
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
+
+	_ "github.com/martinezsaweczko/whatsappBot-golang/repository/migrations"
 )
 
 //go:embed migrations/*/*.sql
