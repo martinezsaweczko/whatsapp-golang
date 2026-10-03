@@ -3,24 +3,79 @@ package electricity
 import (
 	"bytes"
 	"fmt"
+	"image/color"
+	"math"
 	"sort"
 	"time"
 
-	chart "github.com/wcharczuk/go-chart/v2"
-	"github.com/wcharczuk/go-chart/v2/drawing"
+	"github.com/fogleman/gg"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/gofont/gobold"
+	"golang.org/x/image/font/gofont/goregular"
+	"golang.org/x/image/font/opentype"
 )
 
-// tier colors (same as the Node version)
-var (
-	colorCheap     = drawing.Color{R: 0x00, G: 0xAA, B: 0x00, A: 0xff}
-	colorNormal    = drawing.Color{R: 0xDD, G: 0x77, B: 0x00, A: 0xff}
-	colorExpensive = drawing.Color{R: 0xDD, G: 0x00, B: 0x00, A: 0xff}
-	colorGrid      = drawing.Color{R: 0xC8, G: 0xC8, B: 0xC8, A: 0x80}
-	colorAnnotate  = drawing.Color{R: 0x00, G: 0x00, B: 0xEE, A: 0xb3}
+// chart dimensions and margins
+const (
+	chartWidth        = 1000
+	chartHeight       = 650
+	chartMarginLeft   = 70
+	chartMarginRight  = 40
+	chartMarginTop    = 90
+	chartMarginBottom = 80
 )
+
+// tier colors (same semantic meaning as the Node version)
+var (
+	colorCheap     = color.RGBA{R: 0x00, G: 0xAA, B: 0x00, A: 0xff}
+	colorNormal    = color.RGBA{R: 0xDD, G: 0x77, B: 0x00, A: 0xff}
+	colorExpensive = color.RGBA{R: 0xDD, G: 0x00, B: 0x00, A: 0xff}
+	colorGrid      = color.RGBA{R: 0xE0, G: 0xE0, B: 0xE0, A: 0xff}
+	colorAnnotate  = color.RGBA{R: 0x00, G: 0x00, B: 0xEE, A: 0xb3}
+	colorFill      = color.RGBA{R: 0xD6, G: 0xEB, B: 0xF7, A: 0xff}
+)
+
+// font faces loaded once and reused for all renders
+var (
+	regularFace fontFaceCache
+	boldFace    fontFaceCache
+)
+
+type fontFaceCache struct {
+	face font.Face
+	size float64
+}
+
+func (f *fontFaceCache) load(data []byte, size float64) error {
+	if f.face != nil && f.size == size {
+		return nil
+	}
+	font, err := opentype.Parse(data)
+	if err != nil {
+		return fmt.Errorf("failed to parse font: %w", err)
+	}
+	face, err := opentype.NewFace(font, &opentype.FaceOptions{
+		Size: size,
+		DPI:  72,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create font face: %w", err)
+	}
+	f.face = face
+	f.size = size
+	return nil
+}
+
+func setFontFace(dc *gg.Context, cache *fontFaceCache, data []byte, size float64) error {
+	if err := cache.load(data, size); err != nil {
+		return err
+	}
+	dc.SetFontFace(cache.face)
+	return nil
+}
 
 // tierForPrice returns the price tier color (€/kWh)
-func tierForPrice(priceKWh float64) drawing.Color {
+func tierForPrice(priceKWh float64) color.Color {
 	switch {
 	case priceKWh < 0.10:
 		return colorCheap
@@ -32,129 +87,25 @@ func tierForPrice(priceKWh float64) drawing.Color {
 }
 
 // tierRun is a contiguous run of same-tier points drawn as one series
+// (kept for test compatibility)
 type tierRun struct {
 	name    string
-	color   drawing.Color
+	color   color.Color
 	xValues []float64
 	yValues []float64
 }
 
-// renderChart renders the price chart as PNG (ported from the Node canvas renderer)
-func (s *Service) renderChart(data *chartData) ([]byte, error) {
-	s.log.Info("Rendering chart", "dual_day", data.IsDualDay, "points", len(data.Points))
-
-	if len(data.Points) == 0 {
-		return nil, fmt.Errorf("no data available for chart")
-	}
-
-	// Sort by datetime
-	points := make([]PricePoint, len(data.Points))
-	copy(points, data.Points)
-	sort.Slice(points, func(i, j int) bool {
-		return points[i].Datetime.Before(points[j].Datetime)
-	})
-
-	madrid := madridLocation()
-	prices := make([]float64, len(points))
-	for i, p := range points {
-		prices[i] = p.Value / 1000 // €/kWh
-	}
-
-	width := 800
-	labelStep := 3
-	if data.IsDualDay {
-		width = 1200
-		labelStep = 4
-	}
-
-	// Split into contiguous same-tier runs; the legend entry is set on the
-	// first run of each tier
-	runs := buildTierRuns(prices)
-
-	series := make([]chart.Series, 0, len(runs)+1)
-	for _, run := range runs {
-		series = append(series, chart.ContinuousSeries{
-			Name:    run.name,
-			XValues: run.xValues,
-			YValues: run.yValues,
-			Style: chart.Style{
-				StrokeColor: run.color,
-				StrokeWidth: 3,
-				DotWidth:    5,
-				DotColor:    run.color,
-			},
-		})
-	}
-
-	// Annotations: current hour + midnight separator
-	annotations := buildAnnotations(points, data)
-	if len(annotations) > 0 {
-		series = append(series, chart.AnnotationSeries{
-			Annotations: annotations,
-			Style: chart.Style{
-				StrokeColor:     colorAnnotate,
-				StrokeDashArray: []float64{5, 5},
-				StrokeWidth:     2,
-			},
-		})
-	}
-
-	title := "Precio de la electricidad: " + data.TodayDate
-	if data.IsDualDay {
-		title = "Precio de la electricidad: " + data.TodayDate + " a " + data.TomorrowDate
-	}
-
-	graph := chart.Chart{
-		Width:  width,
-		Height: 600,
-		Title:  title,
-		TitleStyle: chart.Style{
-			FontSize:  18,
-			FontColor: chart.ColorBlack,
-		},
-		Background: chart.Style{
-			FillColor: chart.ColorWhite,
-		},
-		XAxis: chart.XAxis{
-			Style:          chart.Style{StrokeColor: chart.ColorBlack},
-			Ticks:          buildTicks(points, labelStep, madrid),
-			GridMajorStyle: chart.Style{StrokeColor: colorGrid},
-		},
-		YAxis: chart.YAxis{
-			Name:  "€/kWh",
-			Style: chart.Style{StrokeColor: chart.ColorBlack},
-			ValueFormatter: func(v interface{}) string {
-				if f, ok := v.(float64); ok {
-					return fmt.Sprintf("%.3f", f)
-				}
-				return fmt.Sprintf("%v", v)
-			},
-			GridMajorStyle: chart.Style{StrokeColor: colorGrid},
-		},
-		Series: series,
-	}
-
-	graph.Elements = []chart.Renderable{chart.Legend(&graph)}
-
-	var buf bytes.Buffer
-	if err := graph.Render(chart.PNG, &buf); err != nil {
-		return nil, fmt.Errorf("failed to render chart: %w", err)
-	}
-
-	s.log.Info("PNG chart rendered successfully", "bytes", buf.Len())
-	return buf.Bytes(), nil
-}
-
 // buildTierRuns groups the points into contiguous same-tier runs.
 // The first run of each tier carries the legend name.
+// Kept for backward compatibility with existing unit tests.
 func buildTierRuns(prices []float64) []tierRun {
 	legendNames := map[string]string{
 		"cheap":     "Barato: < 0.10 €/kWh",
 		"normal":    "Normal: 0.10-0.15 €/kWh",
 		"expensive": "Caro: > 0.15 €/kWh",
 	}
-	tierOf := func(color drawing.Color) string {
-		switch color {
+	tierOf := func(c color.Color) string {
+		switch c {
 		case colorCheap:
 			return "cheap"
 		case colorNormal:
@@ -173,15 +124,15 @@ func buildTierRuns(prices []float64) []tierRun {
 	current.yValues = append(current.yValues, prices[0])
 
 	for i := 1; i < len(prices); i++ {
-		color := tierForPrice(prices[i])
+		c := tierForPrice(prices[i])
 		// Close the current run when the tier changes, sharing the boundary
 		// point so the line stays connected
 		current.xValues = append(current.xValues, float64(i))
 		current.yValues = append(current.yValues, prices[i])
-		if color != currentColor {
+		if c != currentColor {
 			runs = append(runs, current)
-			currentColor = color
-			current = tierRun{color: color}
+			currentColor = c
+			current = tierRun{color: c}
 			current.xValues = append(current.xValues, float64(i))
 			current.yValues = append(current.yValues, prices[i])
 		}
@@ -199,57 +150,220 @@ func buildTierRuns(prices []float64) []tierRun {
 	return runs
 }
 
-// buildTicks returns x-axis ticks every labelStep hours with Madrid-time labels
-func buildTicks(points []PricePoint, labelStep int, madrid *time.Location) []chart.Tick {
-	var ticks []chart.Tick
+// renderChart renders the price chart as PNG using a custom anti-aliased
+// renderer. It preserves the tier coloring, current-hour marker and midnight
+// separator from the previous go-chart implementation but with a much cleaner,
+// modern look.
+func (s *Service) renderChart(data *chartData) ([]byte, error) {
+	s.log.Info("Rendering chart", "dual_day", data.IsDualDay, "points", len(data.Points))
+
+	if len(data.Points) == 0 {
+		return nil, fmt.Errorf("no data available for chart")
+	}
+
+	points := make([]PricePoint, len(data.Points))
+	copy(points, data.Points)
+	sort.Slice(points, func(i, j int) bool {
+		return points[i].Datetime.Before(points[j].Datetime)
+	})
+
+	madrid := madridLocation()
+	prices := make([]float64, len(points))
+	for i, p := range points {
+		prices[i] = p.Value / 1000 // €/kWh
+	}
+
+	width := chartWidth
+	if data.IsDualDay {
+		width = 1400
+	}
+
+	minPrice, maxPrice := prices[0], prices[0]
+	for _, p := range prices {
+		if p < minPrice {
+			minPrice = p
+		}
+		if p > maxPrice {
+			maxPrice = p
+		}
+	}
+	// Round to nice 0.01 boundaries with a little padding
+	minPrice = math.Floor(math.Max(0, minPrice-0.015)*100) / 100
+	maxPrice = math.Ceil((maxPrice+0.015)*100) / 100
+
+	dc := gg.NewContext(width, chartHeight)
+	dc.SetRGB(1, 1, 1)
+	dc.Clear()
+
+	plotX := float64(chartMarginLeft)
+	plotY := float64(chartMarginTop)
+	plotW := float64(width - chartMarginLeft - chartMarginRight)
+	plotH := float64(chartHeight - chartMarginTop - chartMarginBottom)
+
+	xFor := func(i int) float64 {
+		return plotX + float64(i)*plotW/float64(len(points)-1)
+	}
+	yFor := func(v float64) float64 {
+		return plotY + plotH - (v-minPrice)/(maxPrice-minPrice)*plotH
+	}
+
+	// Title
+	title := "Precio de la electricidad: " + data.TodayDate
+	if data.IsDualDay {
+		title = "Precio de la electricidad: " + data.TodayDate + " a " + data.TomorrowDate
+	}
+	if err := setFontFace(dc, &boldFace, gobold.TTF, 22); err != nil {
+		return nil, err
+	}
+	dc.SetRGB(0.1, 0.1, 0.1)
+	dc.DrawStringAnchored(title, float64(width)/2, 35, 0.5, 0.5)
+
+	// Subtitle
+	if err := setFontFace(dc, &regularFace, goregular.TTF, 14); err != nil {
+		return nil, err
+	}
+	dc.SetRGB(0.4, 0.4, 0.4)
+	dc.DrawStringAnchored("€/kWh (PVPC)", float64(width)/2, 58, 0.5, 0.5)
+
+	// Horizontal grid + Y labels
+	if err := setFontFace(dc, &regularFace, goregular.TTF, 12); err != nil {
+		return nil, err
+	}
+	step := 0.02
+	for v := minPrice; v <= maxPrice+1e-9; v += step {
+		y := yFor(v)
+		dc.SetColor(colorGrid)
+		dc.SetLineWidth(1)
+		dc.DrawLine(plotX, y, plotX+plotW, y)
+		dc.Stroke()
+		dc.SetRGB(0.25, 0.25, 0.25)
+		dc.DrawStringAnchored(fmt.Sprintf("%.2f", v), plotX-12, y, 1, 0.5)
+	}
+
+	// Vertical grid + X labels
+	labelStep := 3
+	if data.IsDualDay {
+		labelStep = 4
+	}
 	for i, p := range points {
 		if i%labelStep != 0 {
 			continue
 		}
+		x := xFor(i)
+		dc.SetColor(colorGrid)
+		dc.SetLineWidth(1)
+		dc.DrawLine(x, plotY, x, plotY+plotH)
+		dc.Stroke()
+
 		label := fmt.Sprintf("%02d:00", p.Datetime.In(madrid).Hour())
 		if i == 24 {
 			label = "00(+1)"
 		}
-		ticks = append(ticks, chart.Tick{Value: float64(i), Label: label})
+		dc.SetRGB(0.25, 0.25, 0.25)
+		dc.DrawStringAnchored(label, x, plotY+plotH+20, 0.5, 0.5)
 	}
-	return ticks
-}
 
-// buildAnnotations builds the current-hour and midnight separator annotations
-func buildAnnotations(points []PricePoint, data *chartData) []chart.Value2 {
-	var annotations []chart.Value2
-
-	var maxPrice float64
-	for _, p := range points {
-		if p.Value > maxPrice {
-			maxPrice = p.Value
-		}
+	// Area fill
+	dc.SetColor(colorFill)
+	dc.NewSubPath()
+	dc.MoveTo(xFor(0), yFor(prices[0]))
+	for i := 1; i < len(prices); i++ {
+		dc.LineTo(xFor(i), yFor(prices[i]))
 	}
-	y := maxPrice / 1000
+	dc.LineTo(xFor(len(prices)-1), plotY+plotH)
+	dc.LineTo(xFor(0), plotY+plotH)
+	dc.ClosePath()
+	dc.Fill()
 
-	// Current hour line (only if the current UTC hour is present in today's data)
+	// Line segments colored by tier
+	for i := 1; i < len(prices); i++ {
+		mid := (prices[i-1] + prices[i]) / 2
+		dc.SetColor(tierForPrice(mid))
+		dc.SetLineWidth(3.5)
+		dc.DrawLine(xFor(i-1), yFor(prices[i-1]), xFor(i), yFor(prices[i]))
+		dc.Stroke()
+	}
+
+	// Dots
+	for i, p := range prices {
+		dc.SetColor(tierForPrice(p))
+		dc.DrawCircle(xFor(i), yFor(p), 4)
+		dc.Fill()
+	}
+
+	// Axes
+	dc.SetRGB(0.2, 0.2, 0.2)
+	dc.SetLineWidth(1.5)
+	dc.DrawLine(plotX, plotY+plotH, plotX+plotW, plotY+plotH)
+	dc.DrawLine(plotX, plotY, plotX, plotY+plotH)
+	dc.Stroke()
+
+	// Current hour line
 	now := time.Now().UTC()
 	todayStr := now.Format("2006-01-02")
 	for i, p := range points {
 		pUTC := p.Datetime.UTC()
 		if pUTC.Format("2006-01-02") == todayStr && pUTC.Hour() == now.Hour() {
-			annotations = append(annotations, chart.Value2{
-				XValue: float64(i),
-				YValue: y,
-				Label:  "Hora actual",
-			})
+			x := xFor(i)
+			dc.SetColor(colorAnnotate)
+			dc.SetDash(5, 5)
+			dc.SetLineWidth(2)
+			dc.DrawLine(x, plotY, x, plotY+plotH)
+			dc.Stroke()
+			dc.SetDash()
+			dc.SetRGB(0, 0, 0.9)
+			dc.DrawStringAnchored("Hora actual", x+5, plotY+15, 0, 0.5)
 			break
 		}
 	}
 
-	// Midnight separator between days
+	// Midnight separator
 	if data.IsDualDay && len(points) > 24 {
-		annotations = append(annotations, chart.Value2{
-			XValue: 23.5,
-			YValue: y,
-			Label:  "MEDIANOCHE",
-		})
+		x := xFor(24) - (xFor(24)-xFor(23))/2
+		dc.SetColor(colorAnnotate)
+		dc.SetDash(5, 5)
+		dc.SetLineWidth(2)
+		dc.DrawLine(x, plotY, x, plotY+plotH)
+		dc.Stroke()
+		dc.SetDash()
+		dc.SetRGB(0, 0, 0.9)
+		dc.DrawStringAnchored("MEDIANOCHE", x+5, plotY+15, 0, 0.5)
 	}
 
-	return annotations
+	// Legend box
+	legendX := plotX + plotW - 230
+	legendY := plotY + 10
+	dc.SetRGBA(1, 1, 1, 0.9)
+	dc.DrawRoundedRectangle(legendX-10, legendY-8, 220, 70, 6)
+	dc.Fill()
+	dc.SetRGB(0.7, 0.7, 0.7)
+	dc.SetLineWidth(1)
+	dc.DrawRoundedRectangle(legendX-10, legendY-8, 220, 70, 6)
+	dc.Stroke()
+
+	legendItems := []struct {
+		label string
+		color color.Color
+	}{
+		{"Barato: < 0.10 €/kWh", colorCheap},
+		{"Normal: 0.10-0.15 €/kWh", colorNormal},
+		{"Caro: > 0.15 €/kWh", colorExpensive},
+	}
+	for i, item := range legendItems {
+		y := legendY + float64(i)*20
+		dc.SetColor(item.color)
+		dc.SetLineWidth(3)
+		dc.DrawLine(legendX, y, legendX+20, y)
+		dc.Stroke()
+		dc.SetRGB(0.2, 0.2, 0.2)
+		dc.DrawStringAnchored(item.label, legendX+28, y, 0, 0.5)
+	}
+
+	var buf bytes.Buffer
+	if err := dc.EncodePNG(&buf); err != nil {
+		return nil, fmt.Errorf("failed to render chart: %w", err)
+	}
+
+	s.log.Info("PNG chart rendered successfully", "bytes", buf.Len())
+	return buf.Bytes(), nil
 }
