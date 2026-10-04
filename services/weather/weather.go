@@ -102,12 +102,12 @@ func (s *Service) Report(ctx context.Context, city string) (string, error) {
 // Commands returns the WhatsApp commands of the weather service
 func (s *Service) Commands() []whatsapp.Command {
 	return []whatsapp.Command{
-		{Name: "weather", Pattern: regexp.MustCompile(`^(?i)iempo:\s*`), Handler: s.weatherHandler()},
+		{Name: "weather", Pattern: regexp.MustCompile(`^(?i)tiempo:\s*`), Handler: s.weatherHandler()},
 	}
 }
 
 // weatherPrefix strips the "tiempo:" prefix
-var weatherPrefix = regexp.MustCompile(`^(?i)(t)?iempo:`)
+var weatherPrefix = regexp.MustCompile(`^(?i)tiempo:`)
 
 func (s *Service) weatherHandler() whatsapp.CommandHandler {
 	return func(ctx context.Context, sender whatsapp.Sender, msg whatsapp.IncomingMessage) error {
