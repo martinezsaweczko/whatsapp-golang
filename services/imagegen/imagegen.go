@@ -116,12 +116,12 @@ func (s *Service) Generate(ctx context.Context, prompt string) ([]byte, error) {
 // Commands returns the WhatsApp commands of the image generation service
 func (s *Service) Commands() []whatsapp.Command {
 	return []whatsapp.Command{
-		{Name: "imagen", Pattern: regexp.MustCompile(`^(?i)magen:\s*`), Handler: s.imagenHandler()},
+		{Name: "imagen", Pattern: regexp.MustCompile(`^(?i)imagen:\s*`), Handler: s.imagenHandler()},
 	}
 }
 
 // imagenPrefix strips the "imagen:" prefix
-var imagenPrefix = regexp.MustCompile(`^(?i)(i)?magen:`)
+var imagenPrefix = regexp.MustCompile(`^(?i)imagen:`)
 
 func (s *Service) imagenHandler() whatsapp.CommandHandler {
 	return func(ctx context.Context, sender whatsapp.Sender, msg whatsapp.IncomingMessage) error {

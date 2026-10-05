@@ -14,8 +14,8 @@ var subsPrefix = regexp.MustCompile(`^(?i)s(ubs:|ubscripci(o|ó)n:)`)
 func (s *Service) Commands() []whatsapp.Command {
 	return []whatsapp.Command{
 		{Name: "subs_create", Pattern: regexp.MustCompile(`^(?i)s(ubs:|ubscripci(o|ó)n:)\s*`), Handler: s.subscribeHandler()},
-		{Name: "subs_delete", Pattern: regexp.MustCompile(`^(?i)d(el|elete)_(ubs|ubscripci(o|ó)n).*`), Handler: s.deleteHandler()},
-		{Name: "subs_list", Pattern: regexp.MustCompile(`^(?i)list_(ubs|ubscripci(o|ó)n).*`), Handler: s.listHandler()},
+		{Name: "subs_delete", Pattern: regexp.MustCompile(`^(?i)d(el|elete)_s(ubs|ubscripci(o|ó)n).*`), Handler: s.deleteHandler()},
+		{Name: "subs_list", Pattern: regexp.MustCompile(`^(?i)list_s(ubs|ubscripci(o|ó)n).*`), Handler: s.listHandler()},
 	}
 }
 
