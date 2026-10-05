@@ -92,12 +92,12 @@ func (s *Service) Synthesize(ctx context.Context, text string) ([]byte, error) {
 // Commands returns the WhatsApp commands of the TTS service
 func (s *Service) Commands() []whatsapp.Command {
 	return []whatsapp.Command{
-		{Name: "audio", Pattern: regexp.MustCompile(`^(?i)udio:\s*`), Handler: s.audioHandler()},
+		{Name: "audio", Pattern: regexp.MustCompile(`^(?i)audio:\s*`), Handler: s.audioHandler()},
 	}
 }
 
-// audioPrefix strips the "audio:" prefix (the 'a' is consumed by the command pattern)
-var audioPrefix = regexp.MustCompile(`^(?i)(a)?udio:`)
+// audioPrefix strips the "audio:" prefix
+var audioPrefix = regexp.MustCompile(`^(?i)audio:`)
 
 // audioHandler converts the command text to speech, deletes the original
 // command message and sends the audio to the chat

@@ -38,3 +38,6 @@ build
 
 # Keys
 keys
+
+# Local agent skill registry cache
+.atl

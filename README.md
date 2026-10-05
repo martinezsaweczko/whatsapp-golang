@@ -1,5 +1,9 @@
 # whatsappBot-golang
 
+[![CI](https://github.com/martinezsaweczko/whatsapp-golang/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/martinezsaweczko/whatsapp-golang/actions/workflows/ci.yml)
+[![Release](https://github.com/martinezsaweczko/whatsapp-golang/actions/workflows/release.yml/badge.svg)](https://github.com/martinezsaweczko/whatsapp-golang/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/martinezsaweczko/whatsapp-golang)](https://github.com/martinezsaweczko/whatsapp-golang/releases/latest)
+
 WhatsApp bot written in Go (port of the [whatsappBot-node](../whatsappBot-node) Node.js app), built with [whatsmeow](https://go.mau.fi/whatsmeow) — no Chromium, no Puppeteer, native multidevice protocol.
 
 ## Features
