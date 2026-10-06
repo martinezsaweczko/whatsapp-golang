@@ -108,10 +108,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	botJIDs := []string{
-		cfg.Bot.MentionedBotNumber,
-		cfg.Bot.BotNumber + "@c.us",
-	}
+	botJIDs := whatsapp.BotMentionJIDs(cfg.Bot.BotNumber, cfg.Bot.MentionedBotNumber)
 	router := whatsapp.NewRouter(log, commandMetrics, observabilityInst.Trace, botJIDs,
 		time.Duration(cfg.Bot.CommandTimeout)*time.Second)
 	waClient.AddEventHandler(router.HandleEvent)

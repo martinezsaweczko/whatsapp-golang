@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -457,4 +458,48 @@ func TestExtractDocument(t *testing.T) {
 	if hasDoc || mime != "" || filename != "" {
 		t.Errorf("extractDocument nil = (%v, %q, %q), want (false, , )", hasDoc, mime, filename)
 	}
+}
+
+func TestBotMentionJIDs(t *testing.T) {
+	tests := []struct {
+		name      string
+		botNumber string
+		lidJID    string
+		want      []string
+	}{
+		{
+			name:      "number and lid",
+			botNumber: "34936674253",
+			lidJID:    "57905285959776@lid",
+			want:      []string{"57905285959776@lid", "34936674253@s.whatsapp.net", "34936674253@c.us"},
+		},
+		{
+			name:      "no lid configured",
+			botNumber: "34936674253",
+			want:      []string{"34936674253@s.whatsapp.net", "34936674253@c.us"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := BotMentionJIDs(tt.botNumber, tt.lidJID)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("BotMentionJIDs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFallbackOnPhoneNumberMention(t *testing.T) {
+	router := newTestRouter(t, BotMentionJIDs("34936674253", ""))
+
+	var fallbackCalls atomic.Int32
+	router.SetFallback(func(_ context.Context, _ Sender, _ IncomingMessage) error {
+		fallbackCalls.Add(1)
+		return nil
+	})
+
+	// whatsmeow reports phone-number mentions on the s.whatsapp.net server
+	router.dispatch(messageEvent("@bot dime algo", "34936674253@s.whatsapp.net"))
+	waitFor(t, func() bool { return fallbackCalls.Load() == 1 })
 }
