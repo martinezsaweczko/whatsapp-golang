@@ -8,6 +8,7 @@ import (
 	"embed"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
@@ -195,19 +196,39 @@ func (d *DB) SaveSubscription(ctx context.Context, subscriptionText, user string
 	return nil
 }
 
-// DeleteSubscription removes all subscriptions of a user.
-func (d *DB) DeleteSubscription(ctx context.Context, user string) error {
-	_, err := d.db.ExecContext(ctx, "DELETE FROM subscriptions WHERE user = ?", user)
+// userInClause builds a parameterized "user IN (?, ...)" condition and its
+// arguments for a non-empty set of user identities.
+func userInClause(users []string) (string, []interface{}) {
+	args := make([]interface{}, len(users))
+	for i, user := range users {
+		args[i] = user
+	}
+	return "user IN (?" + strings.Repeat(", ?", len(users)-1) + ")", args
+}
+
+// DeleteSubscription removes all subscriptions stored under any of the given
+// user identities. An empty set deletes nothing.
+func (d *DB) DeleteSubscription(ctx context.Context, users []string) error {
+	if len(users) == 0 {
+		return nil
+	}
+	clause, args := userInClause(users)
+	_, err := d.db.ExecContext(ctx, "DELETE FROM subscriptions WHERE "+clause, args...)
 	if err != nil {
 		return fmt.Errorf("failed to delete subscriptions: %w", err)
 	}
 	return nil
 }
 
-// ReturnSubscriptions returns all subscriptions of a user.
-func (d *DB) ReturnSubscriptions(ctx context.Context, user string) ([]model.Subscription, error) {
+// ReturnSubscriptions returns all subscriptions stored under any of the given
+// user identities. An empty set returns no rows.
+func (d *DB) ReturnSubscriptions(ctx context.Context, users []string) ([]model.Subscription, error) {
+	if len(users) == 0 {
+		return nil, nil
+	}
+	clause, args := userInClause(users)
 	rows, err := d.db.QueryContext(ctx,
-		"SELECT id, subscription_text, user, created_date, updated_date FROM subscriptions WHERE user = ?", user)
+		"SELECT id, subscription_text, user, created_date, updated_date FROM subscriptions WHERE "+clause, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query subscriptions: %w", err)
 	}

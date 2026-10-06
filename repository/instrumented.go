@@ -64,16 +64,16 @@ func (i *InstrumentedDB) SaveSubscription(ctx context.Context, subscriptionText,
 	})
 }
 
-func (i *InstrumentedDB) DeleteSubscription(ctx context.Context, user string) error {
+func (i *InstrumentedDB) DeleteSubscription(ctx context.Context, users []string) error {
 	return i.wrap(ctx, "subscriptions.delete", func(ctx context.Context) error {
-		return i.DB.DeleteSubscription(ctx, user)
+		return i.DB.DeleteSubscription(ctx, users)
 	})
 }
 
-func (i *InstrumentedDB) ReturnSubscriptions(ctx context.Context, user string) (subs []model.Subscription, err error) {
+func (i *InstrumentedDB) ReturnSubscriptions(ctx context.Context, users []string) (subs []model.Subscription, err error) {
 	err = i.wrap(ctx, "subscriptions.select", func(ctx context.Context) error {
 		var err error
-		subs, err = i.DB.ReturnSubscriptions(ctx, user)
+		subs, err = i.DB.ReturnSubscriptions(ctx, users)
 		return err
 	})
 	return subs, err
