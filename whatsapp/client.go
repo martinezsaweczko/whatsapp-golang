@@ -167,13 +167,21 @@ func (c *Client) SendMedia(ctx context.Context, to types.JID, data []byte, mimeT
 	return c.sendMedia(ctx, normalizeJID(to), data, mimeType, filename, nil)
 }
 
-// DeleteMessage deletes (revokes) a message for everyone
+// DeleteMessage deletes (revokes) a message for everyone. The revoke carries
+// the original sender, so the bot can delete other members' messages in groups
+// where it is admin.
 func (c *Client) DeleteMessage(ctx context.Context, msg IncomingMessage) error {
-	_, err := c.cli.RevokeMessage(ctx, msg.Chat, msg.ID)
+	_, err := c.cli.SendMessage(ctx, msg.Chat, c.revokeMessage(msg))
 	if err != nil {
 		return fmt.Errorf("failed to revoke message: %w", err)
 	}
 	return nil
+}
+
+// revokeMessage builds the revocation for an incoming message, carrying its
+// original sender
+func (c *Client) revokeMessage(msg IncomingMessage) *waE2E.Message {
+	return c.cli.BuildRevoke(msg.Chat, msg.Sender, msg.ID)
 }
 
 // DownloadMedia downloads the document attachment from an incoming message.
