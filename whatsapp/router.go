@@ -54,7 +54,7 @@ type Router struct {
 	sender      Sender
 	commands    []Command
 	fallback    CommandHandler
-	botJIDs     []string // JID forms that count as a bot mention (@lid, @c.us)
+	botJIDs     []string // JID forms that count as a bot mention (see BotMentionJIDs)
 	timeout     time.Duration
 	wg          sync.WaitGroup
 	onConnected func(ctx context.Context)
@@ -219,6 +219,19 @@ func (r *Router) matchesChannelMedia(msg IncomingMessage) bool {
 		return false
 	}
 	return msg.Chat.String() == r.channelMedia.jid.String()
+}
+
+// BotMentionJIDs returns the JID forms that count as a mention of the bot: the
+// optional @lid JID plus the phone number on the current and legacy user servers
+func BotMentionJIDs(botNumber, lidJID string) []string {
+	jids := make([]string, 0, 3)
+	if lidJID != "" {
+		jids = append(jids, lidJID)
+	}
+	return append(jids,
+		botNumber+"@"+types.DefaultUserServer,
+		botNumber+"@"+types.LegacyUserServer,
+	)
 }
 
 // mentionsBot reports whether the message mentions the bot in any of its known JID forms
