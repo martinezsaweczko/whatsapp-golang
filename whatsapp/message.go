@@ -13,6 +13,7 @@ type IncomingMessage struct {
 	ID               types.MessageID // Message ID (for replies/deletion)
 	Chat             types.JID       // Conversation the message was sent in
 	Sender           types.JID       // Actual author (differs from Chat in groups)
+	SenderAlt        types.JID       // Alternate address of the author (phone number for a LID sender and vice versa), empty if unknown
 	PushName         string          // Display name of the author ("notifyName" in the Node version)
 	Body             string          // Text content (conversation or extended text)
 	IsGroup          bool            // Whether the chat is a group
@@ -42,6 +43,7 @@ func NewIncomingMessage(evt *events.Message) IncomingMessage {
 		ID:         evt.Info.ID,
 		Chat:       evt.Info.Chat,
 		Sender:     evt.Info.Sender,
+		SenderAlt:  evt.Info.SenderAlt,
 		PushName:   evt.Info.PushName,
 		IsGroup:    evt.Info.IsGroup,
 		RawMessage: evt.Message,

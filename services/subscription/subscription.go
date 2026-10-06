@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -25,8 +26,8 @@ const subscriptionTokenTTL = 48 * time.Hour
 // Store is the consumer-defined interface for subscription persistence
 type Store interface {
 	SaveSubscription(ctx context.Context, subscriptionText, user string) error
-	DeleteSubscription(ctx context.Context, user string) error
-	ReturnSubscriptions(ctx context.Context, user string) ([]model.Subscription, error)
+	DeleteSubscription(ctx context.Context, users []string) error
+	ReturnSubscriptions(ctx context.Context, users []string) ([]model.Subscription, error)
 	MatchSubscriptions(ctx context.Context, file string) ([]string, error)
 }
 
@@ -70,12 +71,38 @@ func New(store Store, jwt LinkBuilder, urlServer string, urlPrefixes map[string]
 	}, nil
 }
 
-// userJID returns the JID identifying the message author (the subscription owner)
-func userJID(msg whatsapp.IncomingMessage) string {
-	return msg.Sender.String()
+// userIdentities returns the equivalent identity strings of the message author
+// (the subscription owner), without duplicates. WhatsApp addresses the same
+// user by phone number or by LID, a linked device adds a device part, and rows
+// imported from the Node app use the legacy "c.us" server, so no single string
+// identifies a user. The first element is the canonical key for new
+// subscriptions: the phone-number JID when known, otherwise the LID.
+func userIdentities(msg whatsapp.IncomingMessage) []string {
+	var phones, others []string
+	for _, jid := range []types.JID{msg.Sender, msg.SenderAlt} {
+		if jid.User == "" || jid.Server == "" {
+			continue
+		}
+		switch jid.Server {
+		case types.DefaultUserServer, types.LegacyUserServer:
+			phones = append(phones,
+				types.NewJID(jid.User, types.DefaultUserServer).String(),
+				types.NewJID(jid.User, types.LegacyUserServer).String())
+		default:
+			others = append(others, jid.ToNonAD().String())
+		}
+	}
+
+	var identities []string
+	for _, identity := range append(phones, others...) {
+		if !slices.Contains(identities, identity) {
+			identities = append(identities, identity)
+		}
+	}
+	return identities
 }
 
-// Subscribe stores a new subscription for the message author
+// Subscribe stores a new subscription for the message author, under their canonical identity
 func (s *Service) Subscribe(ctx context.Context, msg whatsapp.IncomingMessage, text string) error {
 	ctx, span := s.tracer.Start(ctx, "subscription.Subscribe")
 	defer span.End()
@@ -85,7 +112,11 @@ func (s *Service) Subscribe(ctx context.Context, msg whatsapp.IncomingMessage, t
 		return fmt.Errorf("la subscripción no puede estar vacía")
 	}
 
-	user := userJID(msg)
+	users := userIdentities(msg)
+	if len(users) == 0 {
+		return fmt.Errorf("no se ha podido identificar al remitente")
+	}
+	user := users[0]
 	s.log.Info("Processing subscription", "user", msg.PushName, "text", text)
 
 	if err := s.store.SaveSubscription(ctx, text, user); err != nil {
@@ -95,28 +126,28 @@ func (s *Service) Subscribe(ctx context.Context, msg whatsapp.IncomingMessage, t
 	return nil
 }
 
-// Delete removes all subscriptions of the message author
+// Delete removes all subscriptions of the message author, under any of their identities
 func (s *Service) Delete(ctx context.Context, msg whatsapp.IncomingMessage) error {
 	ctx, span := s.tracer.Start(ctx, "subscription.Delete")
 	defer span.End()
 
-	user := userJID(msg)
+	users := userIdentities(msg)
 	s.log.Info("Subscription delete request", "user", msg.PushName)
 
-	if err := s.store.DeleteSubscription(ctx, user); err != nil {
+	if err := s.store.DeleteSubscription(ctx, users); err != nil {
 		return err
 	}
 	s.eventsTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("action", "delete")))
 	return nil
 }
 
-// List returns the formatted list of subscriptions of the message author
+// List returns the formatted list of subscriptions of the message author, under any of their identities
 func (s *Service) List(ctx context.Context, msg whatsapp.IncomingMessage) (string, error) {
 	ctx, span := s.tracer.Start(ctx, "subscription.List")
 	defer span.End()
 
-	user := userJID(msg)
-	subs, err := s.store.ReturnSubscriptions(ctx, user)
+	users := userIdentities(msg)
+	subs, err := s.store.ReturnSubscriptions(ctx, users)
 	if err != nil {
 		return "", err
 	}

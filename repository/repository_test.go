@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -35,7 +36,7 @@ func TestSubscriptionsLifecycle(t *testing.T) {
 	ctx := context.Background()
 
 	// Empty initially
-	subs, err := db.ReturnSubscriptions(ctx, "user1@c.us")
+	subs, err := db.ReturnSubscriptions(ctx, []string{"user1@c.us"})
 	if err != nil {
 		t.Fatalf("ReturnSubscriptions failed: %v", err)
 	}
@@ -54,7 +55,7 @@ func TestSubscriptionsLifecycle(t *testing.T) {
 		t.Fatalf("SaveSubscription failed: %v", err)
 	}
 
-	subs, err = db.ReturnSubscriptions(ctx, "user1@c.us")
+	subs, err = db.ReturnSubscriptions(ctx, []string{"user1@c.us"})
 	if err != nil {
 		t.Fatalf("ReturnSubscriptions failed: %v", err)
 	}
@@ -63,16 +64,167 @@ func TestSubscriptionsLifecycle(t *testing.T) {
 	}
 
 	// Delete only user1's
-	if err := db.DeleteSubscription(ctx, "user1@c.us"); err != nil {
+	if err := db.DeleteSubscription(ctx, []string{"user1@c.us"}); err != nil {
 		t.Fatalf("DeleteSubscription failed: %v", err)
 	}
-	subs, _ = db.ReturnSubscriptions(ctx, "user1@c.us")
+	subs, _ = db.ReturnSubscriptions(ctx, []string{"user1@c.us"})
 	if len(subs) != 0 {
 		t.Fatalf("expected 0 subscriptions after delete, got %d", len(subs))
 	}
-	subs, _ = db.ReturnSubscriptions(ctx, "user2@c.us")
+	subs, _ = db.ReturnSubscriptions(ctx, []string{"user2@c.us"})
 	if len(subs) != 1 {
 		t.Fatalf("user2 subscriptions should be untouched, got %d", len(subs))
+	}
+}
+
+// seedIdentitySubscriptions stores rows for one user under three equivalent
+// identities plus one row of an unrelated user
+func seedIdentitySubscriptions(t *testing.T, db *DB) {
+	t.Helper()
+	rows := [][2]string{
+		{"Mundo", "34600111222@c.us"},
+		{"Pais", "34600111222@s.whatsapp.net"},
+		{"Marca", "111222333444555@lid"},
+		{"Economist", "34600999888@c.us"},
+	}
+	for _, row := range rows {
+		if err := db.SaveSubscription(context.Background(), row[0], row[1]); err != nil {
+			t.Fatalf("SaveSubscription failed: %v", err)
+		}
+	}
+}
+
+// subscriptionTexts returns the sorted subscription texts stored in the table
+func subscriptionTexts(t *testing.T, db *DB) []string {
+	t.Helper()
+	rows, err := db.db.Query("SELECT subscription_text FROM subscriptions ORDER BY subscription_text")
+	if err != nil {
+		t.Fatalf("query failed: %v", err)
+	}
+	defer rows.Close()
+
+	var texts []string
+	for rows.Next() {
+		var text string
+		if err := rows.Scan(&text); err != nil {
+			t.Fatalf("scan failed: %v", err)
+		}
+		texts = append(texts, text)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows failed: %v", err)
+	}
+	return texts
+}
+
+func TestReturnSubscriptionsByIdentitySet(t *testing.T) {
+	tests := []struct {
+		name  string
+		users []string
+		want  []string
+	}{
+		{
+			name:  "several identities of the same user",
+			users: []string{"34600111222@s.whatsapp.net", "34600111222@c.us", "111222333444555@lid"},
+			want:  []string{"Marca", "Mundo", "Pais"},
+		},
+		{
+			name:  "subset of the identities",
+			users: []string{"34600111222@s.whatsapp.net", "34600111222@c.us"},
+			want:  []string{"Mundo", "Pais"},
+		},
+		{
+			name:  "single identity",
+			users: []string{"111222333444555@lid"},
+			want:  []string{"Marca"},
+		},
+		{
+			name:  "identities without rows",
+			users: []string{"34600000000@s.whatsapp.net", "34600000000@c.us"},
+			want:  nil,
+		},
+		{
+			name:  "empty set",
+			users: []string{},
+			want:  nil,
+		},
+		{
+			name:  "nil set",
+			users: nil,
+			want:  nil,
+		},
+	}
+
+	db := newTestDB(t)
+	seedIdentitySubscriptions(t, db)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subs, err := db.ReturnSubscriptions(context.Background(), tt.users)
+			if err != nil {
+				t.Fatalf("ReturnSubscriptions failed: %v", err)
+			}
+
+			var got []string
+			for _, sub := range subs {
+				if !slices.Contains(tt.users, sub.User) {
+					t.Errorf("returned a row of another user: %+v", sub)
+				}
+				got = append(got, sub.SubscriptionText)
+			}
+			slices.Sort(got)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("subscriptions = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDeleteSubscriptionByIdentitySet(t *testing.T) {
+	tests := []struct {
+		name  string
+		users []string
+		want  []string // subscription texts left in the table
+	}{
+		{
+			name:  "several identities of the same user",
+			users: []string{"34600111222@s.whatsapp.net", "34600111222@c.us", "111222333444555@lid"},
+			want:  []string{"Economist"},
+		},
+		{
+			name:  "subset of the identities",
+			users: []string{"34600111222@c.us", "111222333444555@lid"},
+			want:  []string{"Economist", "Pais"},
+		},
+		{
+			name:  "identities without rows",
+			users: []string{"34600000000@s.whatsapp.net", "34600000000@c.us"},
+			want:  []string{"Economist", "Marca", "Mundo", "Pais"},
+		},
+		{
+			name:  "empty set",
+			users: []string{},
+			want:  []string{"Economist", "Marca", "Mundo", "Pais"},
+		},
+		{
+			name:  "nil set",
+			users: nil,
+			want:  []string{"Economist", "Marca", "Mundo", "Pais"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := newTestDB(t)
+			seedIdentitySubscriptions(t, db)
+
+			if err := db.DeleteSubscription(context.Background(), tt.users); err != nil {
+				t.Fatalf("DeleteSubscription failed: %v", err)
+			}
+			if got := subscriptionTexts(t, db); !slices.Equal(got, tt.want) {
+				t.Errorf("remaining subscriptions = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -180,7 +332,7 @@ func TestSQLInjectionResistance(t *testing.T) {
 	}
 
 	// Table must still exist and contain the literal malicious string
-	subs, err := db.ReturnSubscriptions(ctx, "user@c.us")
+	subs, err := db.ReturnSubscriptions(ctx, []string{"user@c.us"})
 	if err != nil {
 		t.Fatalf("table was dropped! %v", err)
 	}

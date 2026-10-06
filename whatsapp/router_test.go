@@ -223,6 +223,45 @@ func TestExtractTextAndMentions(t *testing.T) {
 	}
 }
 
+func TestNewIncomingMessageCopiesSenderAddresses(t *testing.T) {
+	lid := types.NewJID("111222333444555", types.HiddenUserServer)
+	phone := types.NewJID("34600111222", types.DefaultUserServer)
+
+	tests := []struct {
+		name      string
+		sender    types.JID
+		senderAlt types.JID
+	}{
+		{"LID sender with phone number alternate", lid, phone},
+		{"phone number sender with LID alternate", phone, lid},
+		{"no alternate address", phone, types.EmptyJID},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			evt := &events.Message{
+				Info: types.MessageInfo{
+					MessageSource: types.MessageSource{
+						Chat:      types.NewJID("123456", types.GroupServer),
+						Sender:    tt.sender,
+						SenderAlt: tt.senderAlt,
+						IsGroup:   true,
+					},
+				},
+				Message: &waE2E.Message{Conversation: proto.String("list_subs")},
+			}
+
+			msg := NewIncomingMessage(evt)
+			if msg.Sender != tt.sender {
+				t.Errorf("Sender = %s, want %s", msg.Sender, tt.sender)
+			}
+			if msg.SenderAlt != tt.senderAlt {
+				t.Errorf("SenderAlt = %s, want %s", msg.SenderAlt, tt.senderAlt)
+			}
+		})
+	}
+}
+
 func TestMediaTypeFor(t *testing.T) {
 	cases := map[string]string{
 		"image/jpeg":      "image",
