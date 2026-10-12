@@ -1,6 +1,7 @@
 # whatsappBot-golang
 
 [![CI](https://github.com/martinezsaweczko/whatsapp-golang/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/martinezsaweczko/whatsapp-golang/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/martinezsaweczko/whatsapp-golang/badges/coverage.json)](https://github.com/martinezsaweczko/whatsapp-golang/actions/workflows/ci.yml)
 [![Release](https://github.com/martinezsaweczko/whatsapp-golang/actions/workflows/release.yml/badge.svg)](https://github.com/martinezsaweczko/whatsapp-golang/actions/workflows/release.yml)
 [![Latest release](https://img.shields.io/github/v/release/martinezsaweczko/whatsapp-golang)](https://github.com/martinezsaweczko/whatsapp-golang/releases/latest)
 
@@ -44,6 +45,7 @@ make swagger           # regenerate Swagger docs from Go annotations
 make build             # vet + fmt + tidy + swagger check + build -> build/main
 make binary            # regenerate Swagger docs and build without checks or key generation
 make test              # go test -race ./...
+make coverage          # same suite with a coverage profile (coverage.out); prints the total
 make check-swagger     # verify generated Swagger docs are up to date
 make migrate           # run goose migrations against local SQLite (default)
 make migrate-mysql MYSQL_DSN="user:pass@tcp(localhost:3306)/whatsappbot?parseTime=true"  # run MySQL migrations
@@ -248,12 +250,16 @@ podman run -d --name whatsappbot \
 
 ## CI/CD
 
-- **CI** (`.github/workflows/ci.yml`): vet, fmt, govulncheck, `go mod tidy` check, build, `go test -race`, container build verification
+- **CI** (`.github/workflows/ci.yml`): vet, fmt, govulncheck, `go mod tidy` check, Swagger drift check, build, `go test -race` with a coverage profile, container build verification
 - **Release** (`.github/workflows/release.yml`): on tag `vX.Y.Z` — validates semver, runs tests, builds and pushes the container to `ghcr.io` with tags `vX.Y.Z`, `X.Y`, `X`, `latest`, and creates a GitHub release
 
 ```bash
 git tag v0.1.0 && git push origin v0.1.0
 ```
+
+### Test coverage
+
+The coverage badge is refreshed by CI on every push to `main`: the `coverage-badge` job publishes `coverage.json` to the `badges` branch, which the badge reads. The figure excludes the generated `docs` package, and `make coverage` reproduces it locally.
 
 ## Observability
 
