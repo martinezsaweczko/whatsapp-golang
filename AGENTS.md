@@ -45,7 +45,7 @@ Before committing, ALL of: `go build ./...`, `go vet ./...`, `gofmt -l .` empty,
 ## CI/CD
 
 - CI (`.github/workflows/ci.yml`) runs on push/PR: vet, fmt, govulncheck, tidy check, build, `go test -race`, container build.
-- `make ci` runs the same checks locally without modifying files. The Go version comes from the `go` directive in `go.mod` in every workflow; `govulncheck` also runs weekly on `main` (`.github/workflows/vulncheck.yml`).
+- `make ci` runs the CI checks locally (all but the container build) without modifying files. The Go version comes from the `go` directive in `go.mod` in every workflow; `govulncheck` also runs weekly on `main` (`.github/workflows/vulncheck.yml`).
 - Release (`.github/workflows/release.yml`) triggers on semver tags `vX.Y.Z`: pushes container to `ghcr.io/<owner>/whatsappbot-golang` with `vX.Y.Z / X.Y / X / latest` tags and creates a GitHub release. Tag releases with `git tag vX.Y.Z` only.
 
 ## Operational notes

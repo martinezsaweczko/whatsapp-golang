@@ -71,8 +71,9 @@ run: build
 vulncheck:
 	govulncheck ./...
 
-# Runs the same checks as .github/workflows/ci.yml without modifying any file.
-# Keep the two in sync when a CI step is added or removed.
+# Runs the checks of .github/workflows/ci.yml locally without modifying any
+# file. Not covered here: the container build. Update this target when a CI
+# step is added or removed.
 ci: vulncheck check-swagger
 	go vet ./...
 	@test -z "$$(gofmt -l .)" || (echo "gofmt needed on:" && gofmt -l . && exit 1)

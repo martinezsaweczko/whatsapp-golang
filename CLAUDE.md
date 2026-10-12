@@ -16,7 +16,7 @@ make test                                                        # go test -race
 make swagger                                                     # regenerate docs/ after changing handler annotations
 make check-swagger                                               # what CI runs: fails if docs/ is stale
 make vulncheck                                                   # govulncheck ./...
-make ci                                                          # every CI check locally, without modifying files
+make ci                                                          # the CI checks locally (all but the container build), without modifying files
 ```
 
 Makefile targets that do more than their name suggests:
