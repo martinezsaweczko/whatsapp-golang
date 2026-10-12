@@ -149,10 +149,13 @@ func (i *InstrumentedDB) GetScheduledCommand(ctx context.Context, id uuid.UUID) 
 	return cmd, err
 }
 
-func (i *InstrumentedDB) UpdateScheduledCommand(ctx context.Context, cmd model.ScheduledCommand) error {
-	return i.wrap(ctx, "scheduled_commands.update", func(ctx context.Context) error {
-		return i.DB.UpdateScheduledCommand(ctx, cmd)
+func (i *InstrumentedDB) UpdateScheduledCommand(ctx context.Context, cmd model.ScheduledCommand) (stored model.ScheduledCommand, err error) {
+	err = i.wrap(ctx, "scheduled_commands.update", func(ctx context.Context) error {
+		var err error
+		stored, err = i.DB.UpdateScheduledCommand(ctx, cmd)
+		return err
 	})
+	return stored, err
 }
 
 func (i *InstrumentedDB) DeleteScheduledCommand(ctx context.Context, id uuid.UUID) error {

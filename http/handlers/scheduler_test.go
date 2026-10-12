@@ -78,6 +78,17 @@ func (f *fakeSchedulerService) Delete(ctx context.Context, id uuid.UUID) error {
 	return fmt.Errorf("failed to delete scheduled command: %w", sql.ErrNoRows)
 }
 
+// serviceValidationError has the shape of the scheduler service's validation
+// errors: it matches scheduler.ErrInvalid while its text is only the bare
+// message, which is what the API returns to the client.
+type serviceValidationError struct {
+	msg string
+}
+
+func (e serviceValidationError) Error() string { return e.msg }
+
+func (e serviceValidationError) Is(target error) bool { return target == scheduler.ErrInvalid }
+
 func newSchedulerHandler(t *testing.T) (*SchedulerHandler, *fakeSchedulerService) {
 	svc := &fakeSchedulerService{}
 	h, err := SchedulerHandlerConfig{
@@ -297,9 +308,9 @@ func TestSchedulerUpdate(t *testing.T) {
 			name:       "validation failure reports the service message",
 			pathID:     id.String(),
 			body:       validBody,
-			updateErr:  fmt.Errorf("%w: schedule is required", scheduler.ErrInvalid),
+			updateErr:  serviceValidationError{msg: "schedule is required"},
 			wantStatus: http.StatusBadRequest,
-			wantError:  "invalid scheduled command: schedule is required",
+			wantError:  "schedule is required",
 			wantCalled: true,
 		},
 		{

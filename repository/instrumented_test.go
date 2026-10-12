@@ -34,10 +34,14 @@ func TestInstrumentedScheduledCommands(t *testing.T) {
 		t.Fatalf("CreateScheduledCommand failed: %v", err)
 	}
 
-	if err := db.UpdateScheduledCommand(ctx, model.ScheduledCommand{
+	updated, err := db.UpdateScheduledCommand(ctx, model.ScheduledCommand{
 		ID: id, Name: "evening", Schedule: "0 20 * * *", Command: "electricidad", GroupJID: "123@g.us", Enabled: false,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("UpdateScheduledCommand failed: %v", err)
+	}
+	if updated.ID != id || updated.Name != "evening" || updated.UpdatedAt.IsZero() {
+		t.Fatalf("wrapper did not return the stored row: %+v", updated)
 	}
 
 	got, err := db.GetScheduledCommand(ctx, id)
@@ -74,9 +78,10 @@ func TestInstrumentedScheduledCommandsNotFound(t *testing.T) {
 	}{
 		{"get", func() error { _, err := db.GetScheduledCommand(ctx, unknown); return err }},
 		{"update", func() error {
-			return db.UpdateScheduledCommand(ctx, model.ScheduledCommand{
+			_, err := db.UpdateScheduledCommand(ctx, model.ScheduledCommand{
 				ID: unknown, Name: "ghost", Schedule: "0 8 * * *", Command: "electricidad", GroupJID: "1@g.us",
 			})
+			return err
 		}},
 		{"delete", func() error { return db.DeleteScheduledCommand(ctx, unknown) }},
 	}

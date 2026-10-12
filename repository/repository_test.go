@@ -529,12 +529,23 @@ func TestUpdateScheduledCommand(t *testing.T) {
 	// existence is decided by a read and not by the affected-row count.
 	for _, pass := range []string{"first update", "identical update"} {
 		t.Run(pass, func(t *testing.T) {
-			if err := db.UpdateScheduledCommand(ctx, update); err != nil {
+			returned, err := db.UpdateScheduledCommand(ctx, update)
+			if err != nil {
 				t.Fatalf("UpdateScheduledCommand failed: %v", err)
 			}
 			got, err := db.GetScheduledCommand(ctx, id)
 			if err != nil {
 				t.Fatalf("GetScheduledCommand failed: %v", err)
+			}
+			// The returned row is the stored row: new values and the
+			// timestamps the database assigned, not the caller's input.
+			if returned.ID != id || returned.Name != update.Name || returned.Schedule != update.Schedule ||
+				returned.Command != update.Command || returned.GroupJID != update.GroupJID || returned.Enabled != update.Enabled {
+				t.Fatalf("returned row does not carry the new values: %+v", returned)
+			}
+			if !returned.CreatedAt.Equal(got.CreatedAt) || !returned.UpdatedAt.Equal(got.UpdatedAt) {
+				t.Fatalf("returned timestamps differ from the stored ones: returned %v/%v, stored %v/%v",
+					returned.CreatedAt, returned.UpdatedAt, got.CreatedAt, got.UpdatedAt)
 			}
 			if got.Name != update.Name || got.Schedule != update.Schedule || got.Command != update.Command ||
 				got.GroupJID != update.GroupJID || got.Enabled != update.Enabled {
@@ -561,10 +572,16 @@ func TestUpdateScheduledCommand(t *testing.T) {
 func TestUpdateScheduledCommandUnknownID(t *testing.T) {
 	db := newTestDB(t)
 
-	err := db.UpdateScheduledCommand(context.Background(), model.ScheduledCommand{
+	got, err := db.UpdateScheduledCommand(context.Background(), model.ScheduledCommand{
 		ID: uuid.Must(uuid.NewV7()), Name: "ghost", Schedule: "0 8 * * *", Command: "electricidad", GroupJID: "1@g.us", Enabled: true,
 	})
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("expected sql.ErrNoRows for unknown id, got %v", err)
+	}
+	if got != (model.ScheduledCommand{}) {
+		t.Fatalf("expected a zero command for unknown id, got %+v", got)
+	}
+	if cmds, err := db.ListScheduledCommands(context.Background()); err != nil || len(cmds) != 0 {
+		t.Fatalf("expected no rows to be created, got %d (err %v)", len(cmds), err)
 	}
 }

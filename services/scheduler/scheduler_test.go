@@ -18,6 +18,10 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
+// fakeUpdatedAt is the timestamp the fake store assigns on update, standing in
+// for the one the database sets.
+var fakeUpdatedAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
 // fakeStore is an in-memory scheduler store for tests. It is safe for
 // concurrent use and can be told to fail or to record calls.
 type fakeStore struct {
@@ -54,22 +58,22 @@ func (f *fakeStore) GetScheduledCommand(ctx context.Context, id uuid.UUID) (mode
 	return model.ScheduledCommand{}, sql.ErrNoRows
 }
 
-func (f *fakeStore) UpdateScheduledCommand(ctx context.Context, cmd model.ScheduledCommand) error {
+func (f *fakeStore) UpdateScheduledCommand(ctx context.Context, cmd model.ScheduledCommand) (model.ScheduledCommand, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.updateCalls++
 	if f.updateErr != nil {
-		return f.updateErr
+		return model.ScheduledCommand{}, f.updateErr
 	}
 	for i, c := range f.cmds {
 		if c.ID == cmd.ID {
 			cmd.CreatedAt = c.CreatedAt
-			cmd.UpdatedAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+			cmd.UpdatedAt = fakeUpdatedAt
 			f.cmds[i] = cmd
-			return nil
+			return cmd, nil
 		}
 	}
-	return sql.ErrNoRows
+	return model.ScheduledCommand{}, sql.ErrNoRows
 }
 
 func (f *fakeStore) DeleteScheduledCommand(ctx context.Context, id uuid.UUID) error {
@@ -356,8 +360,11 @@ func TestUpdateReplacesCronEntry(t *testing.T) {
 		got.GroupJID != "987654321@g.us" || !got.Enabled {
 		t.Fatalf("unexpected returned command: %+v", got)
 	}
-	if got.UpdatedAt.IsZero() {
-		t.Fatal("expected the returned command to carry the stored updated timestamp")
+	if !got.UpdatedAt.Equal(fakeUpdatedAt) {
+		t.Fatalf("expected the timestamp assigned by the store, got %v", got.UpdatedAt)
+	}
+	if store.updateCalls != 1 {
+		t.Fatalf("expected exactly 1 store update, got %d", store.updateCalls)
 	}
 	if stored, _ := store.GetScheduledCommand(context.Background(), id); stored.Schedule != "30 20 * * *" {
 		t.Fatalf("store was not updated: %+v", stored)
@@ -471,11 +478,14 @@ func TestUpdateStoreFailureKeepsCronEntry(t *testing.T) {
 	storeErr := errors.New("database is down")
 	store.updateErr = storeErr
 
-	_, err := svc.Update(context.Background(), model.ScheduledCommand{
+	got, err := svc.Update(context.Background(), model.ScheduledCommand{
 		ID: id, Name: "evening", Schedule: "30 20 * * *", Command: "tiempo", GroupJID: "987654321@g.us", Enabled: true,
 	})
 	if !errors.Is(err, storeErr) {
 		t.Fatalf("expected the store error, got %v", err)
+	}
+	if got != (model.ScheduledCommand{}) {
+		t.Fatalf("expected a zero command on failure, got %+v", got)
 	}
 	if errors.Is(err, ErrInvalid) || errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("store failure must not look like a validation or not-found error: %v", err)
@@ -486,6 +496,101 @@ func TestUpdateStoreFailureKeepsCronEntry(t *testing.T) {
 	}
 	if !svc.cron.Entry(oldEntry).Valid() {
 		t.Fatal("expected the original cron entry to stay in the runner")
+	}
+	if n := len(svc.cron.Entries()); n != 1 {
+		t.Fatalf("expected exactly 1 cron entry, got %d", n)
+	}
+}
+
+// A disabling update that the store rejects must not stop the running job.
+func TestUpdateStoreFailureKeepsCronEntryWhenDisabling(t *testing.T) {
+	svc, store, id, oldEntry := startedService(t)
+	store.updateErr = errors.New("database is down")
+
+	_, err := svc.Update(context.Background(), model.ScheduledCommand{
+		ID: id, Name: "morning", Schedule: "0 8 * * *", Command: "electricidad", GroupJID: "123456789@g.us", Enabled: false,
+	})
+	if !errors.Is(err, store.updateErr) {
+		t.Fatalf("expected the store error, got %v", err)
+	}
+	if entry, ok := svc.entryFor(id); !ok || entry != oldEntry || !svc.cron.Entry(oldEntry).Valid() {
+		t.Fatal("expected the original cron entry to keep running")
+	}
+}
+
+// TestRestartKeepsOneEntryPerCommand covers Start, Stop, Start: the second
+// runner issues entry IDs from 1 again, so entries remembered from the first
+// runner must not be treated as live.
+func TestRestartKeepsOneEntryPerCommand(t *testing.T) {
+	store := &fakeStore{}
+	exec := &fakeExecutor{commands: []string{"electricidad", "tiempo"}}
+	svc, err := New(store, exec, &fakeChecker{connected: true}, testLogger(), noop.NewTracerProvider(), Config{Timezone: "Europe/Madrid"})
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	ctx := context.Background()
+
+	var enabled []uuid.UUID
+	for _, schedule := range []string{"0 8 * * *", "0 9 * * *", "0 10 * * *"} {
+		id, err := store.CreateScheduledCommand(ctx, model.ScheduledCommand{
+			Name: "job " + schedule, Schedule: schedule, Command: "electricidad", GroupJID: "123456789@g.us", Enabled: true,
+		})
+		if err != nil {
+			t.Fatalf("seeding failed: %v", err)
+		}
+		enabled = append(enabled, id)
+	}
+	disabled, err := store.CreateScheduledCommand(ctx, model.ScheduledCommand{
+		Name: "paused", Schedule: "0 11 * * *", Command: "tiempo", GroupJID: "123456789@g.us", Enabled: false,
+	})
+	if err != nil {
+		t.Fatalf("seeding failed: %v", err)
+	}
+
+	assertOneLiveEntryEach := func(t *testing.T) {
+		t.Helper()
+		if n := len(svc.cron.Entries()); n != len(enabled) {
+			t.Fatalf("expected %d live cron entries, got %d", len(enabled), n)
+		}
+		seen := map[cron.EntryID]uuid.UUID{}
+		for _, id := range enabled {
+			entry, ok := svc.entryFor(id)
+			if !ok {
+				t.Fatalf("command %s has no cron entry", id)
+			}
+			if !svc.cron.Entry(entry).Valid() {
+				t.Fatalf("command %s points at an entry that is not in the runner", id)
+			}
+			if other, dup := seen[entry]; dup {
+				t.Fatalf("commands %s and %s share cron entry %d", id, other, entry)
+			}
+			seen[entry] = id
+		}
+		if _, ok := svc.entryFor(disabled); ok {
+			t.Fatal("disabled command must not have a cron entry")
+		}
+	}
+
+	if err := svc.Start(ctx); err != nil {
+		t.Fatalf("first Start failed: %v", err)
+	}
+	assertOneLiveEntryEach(t)
+	svc.Stop()
+
+	// A command deleted from the store while stopped must not survive either.
+	removed := enabled[len(enabled)-1]
+	if err := store.DeleteScheduledCommand(ctx, removed); err != nil {
+		t.Fatalf("delete while stopped failed: %v", err)
+	}
+	enabled = enabled[:len(enabled)-1]
+
+	if err := svc.Start(ctx); err != nil {
+		t.Fatalf("second Start failed: %v", err)
+	}
+	t.Cleanup(svc.Stop)
+	assertOneLiveEntryEach(t)
+	if _, ok := svc.entryFor(removed); ok {
+		t.Fatal("expected no remembered entry for a command that no longer exists")
 	}
 }
 

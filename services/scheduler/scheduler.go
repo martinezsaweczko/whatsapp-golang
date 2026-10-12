@@ -37,13 +37,12 @@ func invalidf(format string, args ...any) error {
 	return &validationError{err: fmt.Errorf(format, args...)}
 }
 
-// Store persists scheduled commands. GetScheduledCommand and
-// UpdateScheduledCommand report an unknown ID as sql.ErrNoRows.
+// Store persists scheduled commands. UpdateScheduledCommand returns the stored
+// row, timestamps included, and reports an unknown ID as sql.ErrNoRows.
 type Store interface {
 	CreateScheduledCommand(ctx context.Context, cmd model.ScheduledCommand) (uuid.UUID, error)
 	ListScheduledCommands(ctx context.Context) ([]model.ScheduledCommand, error)
-	GetScheduledCommand(ctx context.Context, id uuid.UUID) (model.ScheduledCommand, error)
-	UpdateScheduledCommand(ctx context.Context, cmd model.ScheduledCommand) error
+	UpdateScheduledCommand(ctx context.Context, cmd model.ScheduledCommand) (model.ScheduledCommand, error)
 	DeleteScheduledCommand(ctx context.Context, id uuid.UUID) error
 }
 
@@ -119,7 +118,12 @@ func (s *Service) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Entry IDs belong to one runner and every new runner numbers them from 1
+	// again, so entries remembered from a previous Start must be dropped:
+	// otherwise a stale ID can equal a freshly issued one and replacing it
+	// would remove the job that was just registered.
 	s.cron = cron.New(cron.WithLocation(s.location))
+	s.entries = make(map[uuid.UUID]cron.EntryID)
 
 	cmds, err := s.store.ListScheduledCommands(ctx)
 	if err != nil {
@@ -190,10 +194,19 @@ func (s *Service) List(ctx context.Context) ([]model.ScheduledCommand, error) {
 }
 
 // Update validates and replaces an existing scheduled command, then swaps its
-// cron entry so the new schedule takes effect immediately. It returns the
-// stored row. An unknown ID is reported as an error matching sql.ErrNoRows and
-// a rejected command as one matching ErrInvalid; in both cases, and on any
-// other store failure, the running cron entry is left untouched.
+// cron entry so the new schedule takes effect immediately. It returns the row
+// as the store wrote it, timestamps included.
+//
+// Errors, in the order they can occur:
+//   - a rejected command matches ErrInvalid; the store is not called;
+//   - an unknown ID matches sql.ErrNoRows;
+//   - any other store failure is returned wrapped.
+//
+// In those three cases nothing was stored and the running cron entry is left
+// untouched. Once the store has committed, the only possible error is a
+// failure to register the new cron entry: the row is then already updated
+// while the previous entry keeps running until the next successful update or
+// restart.
 func (s *Service) Update(ctx context.Context, cmd model.ScheduledCommand) (model.ScheduledCommand, error) {
 	ctx, span := s.tracer.Start(ctx, "scheduler.Update",
 		trace.WithAttributes(attribute.String("id", cmd.ID.String())))
@@ -207,7 +220,8 @@ func (s *Service) Update(ctx context.Context, cmd model.ScheduledCommand) (model
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.store.UpdateScheduledCommand(ctx, cmd); err != nil {
+	stored, err := s.store.UpdateScheduledCommand(ctx, cmd)
+	if err != nil {
 		span.RecordError(err)
 		return model.ScheduledCommand{}, fmt.Errorf("failed to update scheduled command: %w", err)
 	}
@@ -221,13 +235,6 @@ func (s *Service) Update(ctx context.Context, cmd model.ScheduledCommand) (model
 		}
 	} else {
 		s.removeCronJobLocked(cmd.ID)
-	}
-
-	// Re-read so the response carries the timestamps the store assigned.
-	stored, err := s.store.GetScheduledCommand(ctx, cmd.ID)
-	if err != nil {
-		span.RecordError(err)
-		return model.ScheduledCommand{}, fmt.Errorf("failed to read updated scheduled command: %w", err)
 	}
 
 	s.log.Info("Updated scheduled command", "id", cmd.ID.String(), "schedule", cmd.Schedule, "command", cmd.Command, "enabled", cmd.Enabled)
