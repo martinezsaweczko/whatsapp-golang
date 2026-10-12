@@ -63,9 +63,18 @@ curl -X POST http://localhost:9000/api/v1/scheduler \
 # List schedules
 curl http://localhost:9000/api/v1/scheduler
 
+# Update a schedule in place (full replacement; "enabled" defaults to true when omitted)
+curl -X PUT http://localhost:9000/api/v1/scheduler/<schedule-uuid> \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"evening electricity","schedule":"30 20 * * *","command":"electricidad","group_jid":"123456789@g.us","enabled":true}'
+
 # Delete a schedule
-curl -X DELETE http://localhost:9000/api/v1/scheduler/1
+curl -X DELETE http://localhost:9000/api/v1/scheduler/<schedule-uuid>
 ```
+
+`<schedule-uuid>` is the `id` returned by the create and list calls. An update keeps the ID and
+`created_at`, and the new schedule takes effect immediately; sending `"enabled":false` stops the
+job without deleting it.
 
 Use `-scheduler-timezone` to change the timezone and `-scheduler-enabled=false` to disable the runner.
 ```

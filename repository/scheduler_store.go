@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -24,12 +25,37 @@ func (d *DB) CreateScheduledCommand(ctx context.Context, cmd model.ScheduledComm
 	return cmd.ID, nil
 }
 
+// scheduledCommandColumns is the column list shared by every scheduled command read.
+const scheduledCommandColumns = "id, name, schedule, command, group_jid, enabled, created_date, updated_date"
+
+// rowScanner is satisfied by both *sql.Row and *sql.Rows.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// scanScheduledCommand reads one row selected with scheduledCommandColumns.
+// A missing row surfaces as sql.ErrNoRows, unwrapped.
+func (d *DB) scanScheduledCommand(row rowScanner) (model.ScheduledCommand, error) {
+	var c model.ScheduledCommand
+	var rawID interface{}
+	if err := row.Scan(&rawID, &c.Name, &c.Schedule, &c.Command, &c.GroupJID, &c.Enabled, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.ScheduledCommand{}, sql.ErrNoRows
+		}
+		return model.ScheduledCommand{}, fmt.Errorf("failed to scan scheduled command: %w", err)
+	}
+	id, err := d.scanUUID(rawID)
+	if err != nil {
+		return model.ScheduledCommand{}, fmt.Errorf("failed to parse scheduled command id: %w", err)
+	}
+	c.ID = id
+	return c, nil
+}
+
 // ListScheduledCommands returns all scheduled commands.
 func (d *DB) ListScheduledCommands(ctx context.Context) ([]model.ScheduledCommand, error) {
 	rows, err := d.db.QueryContext(ctx,
-		`SELECT id, name, schedule, command, group_jid, enabled, created_date, updated_date
-		 FROM scheduled_commands
-		 ORDER BY created_date DESC`)
+		"SELECT "+scheduledCommandColumns+" FROM scheduled_commands ORDER BY created_date DESC")
 	if err != nil {
 		return nil, fmt.Errorf("failed to list scheduled commands: %w", err)
 	}
@@ -37,18 +63,60 @@ func (d *DB) ListScheduledCommands(ctx context.Context) ([]model.ScheduledComman
 
 	var cmds []model.ScheduledCommand
 	for rows.Next() {
-		var c model.ScheduledCommand
-		var rawID interface{}
-		if err := rows.Scan(&rawID, &c.Name, &c.Schedule, &c.Command, &c.GroupJID, &c.Enabled, &c.CreatedAt, &c.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("failed to scan scheduled command: %w", err)
-		}
-		c.ID, err = d.scanUUID(rawID)
+		c, err := d.scanScheduledCommand(rows)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse scheduled command id: %w", err)
+			return nil, err
 		}
 		cmds = append(cmds, c)
 	}
 	return cmds, rows.Err()
+}
+
+// GetScheduledCommand returns one scheduled command by ID, or sql.ErrNoRows
+// when it does not exist.
+func (d *DB) GetScheduledCommand(ctx context.Context, id uuid.UUID) (model.ScheduledCommand, error) {
+	row := d.db.QueryRowContext(ctx,
+		"SELECT "+scheduledCommandColumns+" FROM scheduled_commands WHERE id = ?", d.uuidValue(id))
+	return d.scanScheduledCommand(row)
+}
+
+// UpdateScheduledCommand replaces the editable fields of the scheduled command
+// identified by cmd.ID and refreshes updated_date. It returns sql.ErrNoRows
+// when the ID does not exist.
+//
+// Existence is decided by a read inside the same transaction rather than by
+// RowsAffected: MySQL reports zero affected rows when the new values equal the
+// stored ones, which would make an identical update look like a missing row.
+// updated_date is set explicitly because SQLite has no ON UPDATE clause.
+func (d *DB) UpdateScheduledCommand(ctx context.Context, cmd model.ScheduledCommand) error {
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin scheduled command update: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }() // no-op after a successful commit
+
+	var exists int
+	err = tx.QueryRowContext(ctx,
+		"SELECT 1 FROM scheduled_commands WHERE id = ?", d.uuidValue(cmd.ID)).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return sql.ErrNoRows
+	}
+	if err != nil {
+		return fmt.Errorf("failed to look up scheduled command: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE scheduled_commands
+		 SET name = ?, schedule = ?, command = ?, group_jid = ?, enabled = ?, updated_date = CURRENT_TIMESTAMP
+		 WHERE id = ?`,
+		cmd.Name, cmd.Schedule, cmd.Command, cmd.GroupJID, cmd.Enabled, d.uuidValue(cmd.ID)); err != nil {
+		return fmt.Errorf("failed to update scheduled command: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit scheduled command update: %w", err)
+	}
+	return nil
 }
 
 // DeleteScheduledCommand removes a scheduled command by ID.

@@ -71,7 +71,7 @@ The scheduler (`services/scheduler`, robfig/cron, 5-field expressions, only when
 
 ### Persistence
 
-- `repository.DB` holds the queries; `repository.InstrumentedDB` embeds it and adds spans and metrics. A new repository method is only instrumented if a wrapper is added in `instrumented.go`; otherwise the embedded method is promoted silently (the scheduled-command methods are currently in that state).
+- `repository.DB` holds the queries; `repository.InstrumentedDB` embeds it and adds spans and metrics. A new repository method is only instrumented if a wrapper is added in `instrumented.go`; otherwise the embedded method is promoted silently.
 - Tables: `subscriptions`, `jwt_used`, `file_usage`, `user_usage`, `scheduled_commands`.
 - Primary keys are UUID v7, stored as TEXT on SQLite and BINARY(16) on MySQL; go through `uuidValue` / `scanUUID`. Dialect-specific SQL branches on `DB.dialect`.
 - SQLite runs with a single open connection.

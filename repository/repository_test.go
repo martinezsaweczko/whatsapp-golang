@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -444,5 +446,125 @@ func TestScheduledCommandsLifecycle(t *testing.T) {
 	}
 	if len(cmds) != 0 {
 		t.Fatalf("expected 0 scheduled commands after delete, got %d", len(cmds))
+	}
+}
+
+func TestGetScheduledCommand(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	want := model.ScheduledCommand{
+		Name:     "morning electricity",
+		Schedule: "0 8 * * *",
+		Command:  "electricidad",
+		GroupJID: "123456789@g.us",
+		Enabled:  true,
+	}
+	id, err := db.CreateScheduledCommand(ctx, want)
+	if err != nil {
+		t.Fatalf("CreateScheduledCommand failed: %v", err)
+	}
+
+	got, err := db.GetScheduledCommand(ctx, id)
+	if err != nil {
+		t.Fatalf("GetScheduledCommand failed: %v", err)
+	}
+	if got.ID != id || got.Name != want.Name || got.Schedule != want.Schedule ||
+		got.Command != want.Command || got.GroupJID != want.GroupJID || got.Enabled != want.Enabled {
+		t.Fatalf("unexpected scheduled command: %+v", got)
+	}
+	if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
+		t.Fatalf("expected timestamps to be set, got created=%v updated=%v", got.CreatedAt, got.UpdatedAt)
+	}
+
+	if _, err := db.GetScheduledCommand(ctx, uuid.Must(uuid.NewV7())); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected sql.ErrNoRows for unknown id, got %v", err)
+	}
+}
+
+func TestUpdateScheduledCommand(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	id, err := db.CreateScheduledCommand(ctx, model.ScheduledCommand{
+		Name:     "morning electricity",
+		Schedule: "0 8 * * *",
+		Command:  "electricidad",
+		GroupJID: "123456789@g.us",
+		Enabled:  true,
+	})
+	if err != nil {
+		t.Fatalf("CreateScheduledCommand failed: %v", err)
+	}
+	// A second row proves the update is scoped to the requested ID.
+	otherID, err := db.CreateScheduledCommand(ctx, model.ScheduledCommand{
+		Name: "other", Schedule: "0 9 * * *", Command: "tiempo", GroupJID: "999@g.us", Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateScheduledCommand (other) failed: %v", err)
+	}
+
+	// Age the row so the refreshed updated_date is observable despite the
+	// one-second resolution of CURRENT_TIMESTAMP.
+	if _, err := db.db.ExecContext(ctx,
+		"UPDATE scheduled_commands SET created_date = '2020-01-01 00:00:00', updated_date = '2020-01-01 00:00:00' WHERE id = ?",
+		db.uuidValue(id)); err != nil {
+		t.Fatalf("failed to age the row: %v", err)
+	}
+	before, err := db.GetScheduledCommand(ctx, id)
+	if err != nil {
+		t.Fatalf("GetScheduledCommand failed: %v", err)
+	}
+
+	update := model.ScheduledCommand{
+		ID:       id,
+		Name:     "evening electricity",
+		Schedule: "30 20 * * 1-5",
+		Command:  "electricidad mañana",
+		GroupJID: "987654321@g.us",
+		Enabled:  false,
+	}
+
+	// The second pass is a no-op update: it must still succeed, because
+	// existence is decided by a read and not by the affected-row count.
+	for _, pass := range []string{"first update", "identical update"} {
+		t.Run(pass, func(t *testing.T) {
+			if err := db.UpdateScheduledCommand(ctx, update); err != nil {
+				t.Fatalf("UpdateScheduledCommand failed: %v", err)
+			}
+			got, err := db.GetScheduledCommand(ctx, id)
+			if err != nil {
+				t.Fatalf("GetScheduledCommand failed: %v", err)
+			}
+			if got.Name != update.Name || got.Schedule != update.Schedule || got.Command != update.Command ||
+				got.GroupJID != update.GroupJID || got.Enabled != update.Enabled {
+				t.Fatalf("fields were not updated: %+v", got)
+			}
+			if !got.CreatedAt.Equal(before.CreatedAt) {
+				t.Fatalf("created_date changed: got %v, want %v", got.CreatedAt, before.CreatedAt)
+			}
+			if !got.UpdatedAt.After(before.UpdatedAt) {
+				t.Fatalf("updated_date was not refreshed: got %v, before %v", got.UpdatedAt, before.UpdatedAt)
+			}
+		})
+	}
+
+	other, err := db.GetScheduledCommand(ctx, otherID)
+	if err != nil {
+		t.Fatalf("GetScheduledCommand (other) failed: %v", err)
+	}
+	if other.Name != "other" || !other.Enabled {
+		t.Fatalf("update leaked into another row: %+v", other)
+	}
+}
+
+func TestUpdateScheduledCommandUnknownID(t *testing.T) {
+	db := newTestDB(t)
+
+	err := db.UpdateScheduledCommand(context.Background(), model.ScheduledCommand{
+		ID: uuid.Must(uuid.NewV7()), Name: "ghost", Schedule: "0 8 * * *", Command: "electricidad", GroupJID: "1@g.us", Enabled: true,
+	})
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected sql.ErrNoRows for unknown id, got %v", err)
 	}
 }
