@@ -13,6 +13,8 @@ go run ./cmd -bot-number <number> -bot-notification-jid <jid>   # run locally (t
 go test ./whatsapp -run TestFirstMatchWins -race -count=1        # single test
 go test ./services/kiosk/...                                     # single package
 make test                                                        # go test -race -count=1 ./...
+make coverage                                                    # same suite + coverage.out (docs/ excluded), prints the total
+make coverage-total                                              # bare number from an existing coverage.out
 make swagger                                                     # regenerate docs/ after changing handler annotations
 make check-swagger                                               # what CI runs: fails if docs/ is stale
 make vulncheck                                                   # govulncheck ./...
@@ -92,4 +94,5 @@ The scheduler (`services/scheduler`, robfig/cron, 5-field expressions, only when
 - "Handlers run in goroutines with timeout + recover" holds for real messages only, not for the scheduled path above.
 - `go.mau.fi/whatsmeow/types` is imported beyond `whatsapp` and `app` (config, HTTP handlers, several services). The rule to keep is: the whatsmeow client and events stay inside `whatsapp`.
 - CI also installs `swag` and runs `make check-swagger`, and builds the container with Docker rather than podman.
+- CI runs the tests through `make coverage`, not `make test`. On a push to `main` the `coverage-badge` job force-pushes `coverage.json` as a single commit to the orphan `badges` branch (the only job with `contents: write`); the README badge reads that file.
 - `.github/.copilot-instructions` describes the original template (different module, CGO SQLite driver, env-var config) and should be ignored.

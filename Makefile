@@ -11,7 +11,12 @@ GOOSE := $(shell go env GOPATH)/bin/goose
 DB_DRIVER ?= sqlite
 DB_DSN ?= /tmp/db.sqlite
 
-.PHONY: build binary check check-swagger ci clean clean-keys container keys migrate migrate-mysql run swagger test vulncheck
+.PHONY: build binary check check-swagger ci clean clean-keys container coverage coverage-total keys migrate migrate-mysql run swagger test vulncheck
+
+# Coverage profile. The generated swagger package (docs/) is excluded because
+# it is swag output, not authored code.
+COVERAGE_PROFILE := coverage.out
+COVERAGE_EXCLUDE := /docs/
 
 keys: clean-keys
 	@mkdir -p keys
@@ -61,6 +66,19 @@ check:
 
 test:
 	go test -race -count=1 ./...
+
+# Runs the suite once with the race detector, writes $(COVERAGE_PROFILE) without
+# the generated docs package and prints the total.
+coverage:
+	go test -race -count=1 -covermode=atomic -coverprofile=$(COVERAGE_PROFILE).tmp ./...
+	@grep -v '$(COVERAGE_EXCLUDE)' $(COVERAGE_PROFILE).tmp > $(COVERAGE_PROFILE)
+	@rm -f $(COVERAGE_PROFILE).tmp
+	@go tool cover -func=$(COVERAGE_PROFILE) | tail -n 1
+
+# Prints only the number (for example 71.4) from an existing profile; run
+# `make coverage` first. CI uses this to build the badge.
+coverage-total:
+	@go tool cover -func=$(COVERAGE_PROFILE) | awk '/^total:/ { sub(/%/, "", $$NF); print $$NF }'
 
 clean:
 	rm -rf build
