@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
 	"github.com/martinezsaweczko/whatsappBot-golang/o11"
 	"go.opentelemetry.io/otel/attribute"
@@ -118,5 +119,47 @@ func (i *InstrumentedDB) ReportFileUsage(ctx context.Context, file string, resul
 func (i *InstrumentedDB) ReportUserUsage(ctx context.Context, user, file string) error {
 	return i.wrap(ctx, "user_usage.insert", func(ctx context.Context) error {
 		return i.DB.ReportUserUsage(ctx, user, file)
+	})
+}
+
+func (i *InstrumentedDB) CreateScheduledCommand(ctx context.Context, cmd model.ScheduledCommand) (id uuid.UUID, err error) {
+	err = i.wrap(ctx, "scheduled_commands.insert", func(ctx context.Context) error {
+		var err error
+		id, err = i.DB.CreateScheduledCommand(ctx, cmd)
+		return err
+	})
+	return id, err
+}
+
+func (i *InstrumentedDB) ListScheduledCommands(ctx context.Context) (cmds []model.ScheduledCommand, err error) {
+	err = i.wrap(ctx, "scheduled_commands.select", func(ctx context.Context) error {
+		var err error
+		cmds, err = i.DB.ListScheduledCommands(ctx)
+		return err
+	})
+	return cmds, err
+}
+
+func (i *InstrumentedDB) GetScheduledCommand(ctx context.Context, id uuid.UUID) (cmd model.ScheduledCommand, err error) {
+	err = i.wrap(ctx, "scheduled_commands.get", func(ctx context.Context) error {
+		var err error
+		cmd, err = i.DB.GetScheduledCommand(ctx, id)
+		return err
+	})
+	return cmd, err
+}
+
+func (i *InstrumentedDB) UpdateScheduledCommand(ctx context.Context, cmd model.ScheduledCommand) (stored model.ScheduledCommand, err error) {
+	err = i.wrap(ctx, "scheduled_commands.update", func(ctx context.Context) error {
+		var err error
+		stored, err = i.DB.UpdateScheduledCommand(ctx, cmd)
+		return err
+	})
+	return stored, err
+}
+
+func (i *InstrumentedDB) DeleteScheduledCommand(ctx context.Context, id uuid.UUID) error {
+	return i.wrap(ctx, "scheduled_commands.delete", func(ctx context.Context) error {
+		return i.DB.DeleteScheduledCommand(ctx, id)
 	})
 }

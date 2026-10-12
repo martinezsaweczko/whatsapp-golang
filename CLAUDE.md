@@ -16,6 +16,7 @@ make test                                                        # go test -race
 make swagger                                                     # regenerate docs/ after changing handler annotations
 make check-swagger                                               # what CI runs: fails if docs/ is stale
 make vulncheck                                                   # govulncheck ./...
+make ci                                                          # the CI checks locally (all but the container build), without modifying files
 ```
 
 Makefile targets that do more than their name suggests:
@@ -26,6 +27,8 @@ Makefile targets that do more than their name suggests:
 - `make binary` creates `/tmp/periodico/{nacional,internacional,magazine}`, the default kiosk folders.
 
 Running locally needs `keys/public.pem` and `keys/private.pem` (`make keys`). Defaults: public server on `:46564`, internal server on `:9000`. On first run (no session in `-session-db-path`) the client prints a QR code to stdout, or requests a pairing code when a pairing phone is configured.
+
+The Go version has one source of truth, the `go` directive in `go.mod`: both workflows read it (`go-version-file`), and a local older Go downloads that toolchain automatically. `govulncheck` also runs weekly on `main` (`.github/workflows/vulncheck.yml`) because new advisories can break CI without any commit; the usual fix is bumping the `go` directive or the flagged module.
 
 Tooling is not pinned beyond `swag` (`tools/tools.go`): the `goose` and `govulncheck` CLIs must be installed separately. There is no golangci-lint config.
 
@@ -71,7 +74,7 @@ The scheduler (`services/scheduler`, robfig/cron, 5-field expressions, only when
 
 ### Persistence
 
-- `repository.DB` holds the queries; `repository.InstrumentedDB` embeds it and adds spans and metrics. A new repository method is only instrumented if a wrapper is added in `instrumented.go`; otherwise the embedded method is promoted silently (the scheduled-command methods are currently in that state).
+- `repository.DB` holds the queries; `repository.InstrumentedDB` embeds it and adds spans and metrics. A new repository method is only instrumented if a wrapper is added in `instrumented.go`; otherwise the embedded method is promoted silently.
 - Tables: `subscriptions`, `jwt_used`, `file_usage`, `user_usage`, `scheduled_commands`.
 - Primary keys are UUID v7, stored as TEXT on SQLite and BINARY(16) on MySQL; go through `uuidValue` / `scanUUID`. Dialect-specific SQL branches on `DB.dialect`.
 - SQLite runs with a single open connection.

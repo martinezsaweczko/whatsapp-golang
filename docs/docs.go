@@ -195,6 +195,63 @@ const docTemplate = `{
             }
         },
         "/api/v1/scheduler/{id}": {
+            "put": {
+                "description": "Replaces the name, cron expression, command, group and enabled flag of a scheduled command, keeping its ID. The new schedule takes effect immediately. Omitting enabled sets it to true.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scheduler"
+                ],
+                "summary": "Update a scheduled command",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Schedule UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Scheduled command",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.updateScheduleRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.scheduledCommandResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.errorResponse"
+                        }
+                    }
+                }
+            },
             "delete": {
                 "description": "Removes a scheduled command by ID.",
                 "tags": [
@@ -222,6 +279,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/handlers.errorResponse"
                         }
@@ -601,6 +664,26 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "file": {
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.updateScheduleRequest": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "group_jid": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "schedule": {
                     "type": "string"
                 }
             }

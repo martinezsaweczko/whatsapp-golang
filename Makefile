@@ -11,7 +11,7 @@ GOOSE := $(shell go env GOPATH)/bin/goose
 DB_DRIVER ?= sqlite
 DB_DSN ?= /tmp/db.sqlite
 
-.PHONY: build binary check check-swagger clean clean-keys container keys migrate migrate-mysql run swagger test vulncheck
+.PHONY: build binary check check-swagger ci clean clean-keys container keys migrate migrate-mysql run swagger test vulncheck
 
 keys: clean-keys
 	@mkdir -p keys
@@ -70,6 +70,16 @@ run: build
 
 vulncheck:
 	govulncheck ./...
+
+# Runs the checks of .github/workflows/ci.yml locally without modifying any
+# file. Not covered here: the container build. Update this target when a CI
+# step is added or removed.
+ci: vulncheck check-swagger
+	go vet ./...
+	@test -z "$$(gofmt -l .)" || (echo "gofmt needed on:" && gofmt -l . && exit 1)
+	go mod tidy -diff
+	go build ./...
+	go test -race -count=1 ./...
 
 container:
 	podman build -f Containerfile \
