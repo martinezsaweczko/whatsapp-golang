@@ -16,6 +16,7 @@ import (
 
 	"github.com/martinezsaweczko/whatsappBot-golang/o11"
 	"github.com/martinezsaweczko/whatsappBot-golang/whatsapp"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -61,24 +62,39 @@ func (s *Service) Generate(ctx context.Context, prompt string) ([]byte, error) {
 
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
-		return nil, fmt.Errorf("indica el texto de la imagen. Ejemplo: *_imagen: un gato en el espacio_*")
+		err := fmt.Errorf("indica el texto de la imagen. Ejemplo: *_imagen: un gato en el espacio_*")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	if err := writer.WriteField("prompt", prompt); err != nil {
-		return nil, fmt.Errorf("failed to build request: %w", err)
+		err = fmt.Errorf("failed to build request: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 	if err := writer.WriteField("output_format", "jpeg"); err != nil {
-		return nil, fmt.Errorf("failed to build request: %w", err)
+		err = fmt.Errorf("failed to build request: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 	if err := writer.Close(); err != nil {
-		return nil, fmt.Errorf("failed to build request: %w", err)
+		err = fmt.Errorf("failed to build request: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build request: %w", err)
+		err = fmt.Errorf("failed to build request: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+s.apiKey)
 	req.Header.Set("Accept", "application/json")
@@ -86,27 +102,42 @@ func (s *Service) Generate(ctx context.Context, prompt string) ([]byte, error) {
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("stability request failed: %w", err)
+		err = fmt.Errorf("stability request failed: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read stability response: %w", err)
+		err = fmt.Errorf("failed to read stability response: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("stability API returned status %d: %s", resp.StatusCode, string(respBody))
+		err := fmt.Errorf("stability API returned status %d: %s", resp.StatusCode, string(respBody))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	var parsed stabilityResponse
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return nil, fmt.Errorf("failed to parse stability response: %w", err)
+		err = fmt.Errorf("failed to parse stability response: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	image, err := base64.StdEncoding.DecodeString(parsed.Image)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode generated image: %w", err)
+		err = fmt.Errorf("failed to decode generated image: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	s.imagesTotal.Add(ctx, 1)

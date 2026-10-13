@@ -14,6 +14,7 @@ import (
 
 	"github.com/martinezsaweczko/whatsappBot-golang/o11"
 	"github.com/martinezsaweczko/whatsappBot-golang/whatsapp"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -51,7 +52,10 @@ func (s *Service) Synthesize(ctx context.Context, text string) ([]byte, error) {
 
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return nil, fmt.Errorf("no hay texto para convertir a audio")
+		err := fmt.Errorf("no hay texto para convertir a audio")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	params := url.Values{
@@ -66,23 +70,35 @@ func (s *Service) Synthesize(ctx context.Context, text string) ([]byte, error) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"?"+params.Encode(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build TTS request: %w", err)
+		err = fmt.Errorf("failed to build TTS request: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0")
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("TTS request failed: %w", err)
+		err = fmt.Errorf("TTS request failed: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("TTS returned status %d", resp.StatusCode)
+		err := fmt.Errorf("TTS returned status %d", resp.StatusCode)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	audio, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read TTS response: %w", err)
+		err = fmt.Errorf("failed to read TTS response: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	s.synthTotal.Add(ctx, 1)

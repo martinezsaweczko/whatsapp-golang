@@ -9,7 +9,10 @@ import (
 	"os"
 	"testing"
 
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric/noop"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 )
 
@@ -53,6 +56,59 @@ func TestSynthesizeEmpty(t *testing.T) {
 	svc, _ := New(http.DefaultClient, log, tracenoop.NewTracerProvider(), noop.NewMeterProvider())
 	if _, err := svc.Synthesize(context.Background(), "   "); err == nil {
 		t.Fatal("expected error for empty text")
+	}
+}
+
+// A failed synthesis replies to the user and returns nil from the command
+// handler, so the tts.Synthesize span is the only place the failure shows up.
+func TestSynthesizeSpanStatus(t *testing.T) {
+	tests := []struct {
+		name       string
+		text       string
+		upstream   int
+		wantErr    bool
+		wantStatus codes.Code
+	}{
+		{name: "audio generated", text: "hola mundo", upstream: http.StatusOK, wantStatus: codes.Unset},
+		{name: "empty text", text: "   ", upstream: http.StatusOK, wantErr: true, wantStatus: codes.Error},
+		{name: "upstream failure", text: "hola mundo", upstream: http.StatusInternalServerError, wantErr: true, wantStatus: codes.Error},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.upstream)
+				w.Write([]byte("fake-mp3-bytes"))
+			}))
+			defer server.Close()
+
+			recorder := tracetest.NewSpanRecorder()
+			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+			t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+			log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+			client := &http.Client{Transport: &rewriteTransport{target: server.URL, base: http.DefaultTransport}}
+			svc, err := New(client, log, tp, noop.NewMeterProvider())
+			if err != nil {
+				t.Fatalf("New failed: %v", err)
+			}
+
+			_, err = svc.Synthesize(context.Background(), tt.text)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Synthesize error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			spans := recorder.Ended()
+			if len(spans) != 1 || spans[0].Name() != "tts.Synthesize" {
+				t.Fatalf("ended spans = %d, want a single tts.Synthesize span", len(spans))
+			}
+			if got := spans[0].Status().Code; got != tt.wantStatus {
+				t.Errorf("span status = %v, want %v", got, tt.wantStatus)
+			}
+			if got := len(spans[0].Events()) == 1; got != tt.wantErr {
+				t.Errorf("span has a recorded error = %v, want %v", got, tt.wantErr)
+			}
+		})
 	}
 }
 
