@@ -14,6 +14,7 @@ import (
 	"github.com/robfig/cron/v3"
 	"go.mau.fi/whatsmeow/types"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -115,6 +116,9 @@ func New(store Store, executor CommandExecutor, checker ConnectionChecker, log *
 
 // Start loads existing schedules from the database and starts the cron runner.
 func (s *Service) Start(ctx context.Context) error {
+	ctx, span := s.tracer.Start(ctx, "scheduler.Start")
+	defer span.End()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -127,6 +131,8 @@ func (s *Service) Start(ctx context.Context) error {
 
 	cmds, err := s.store.ListScheduledCommands(ctx)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("failed to load scheduled commands: %w", err)
 	}
 
@@ -135,11 +141,14 @@ func (s *Service) Start(ctx context.Context) error {
 			continue
 		}
 		if err := s.setCronJobLocked(cmd); err != nil {
+			// Not fatal: the remaining commands are still scheduled
+			span.RecordError(err)
 			s.log.Error("Failed to schedule command on startup", "id", cmd.ID, "error", err)
 		}
 	}
 
 	s.cron.Start()
+	span.SetAttributes(attribute.Int("schedules", len(s.entries)))
 	s.log.Info("Scheduler started", "timezone", s.cfg.Timezone, "schedules", len(s.entries))
 	return nil
 }
@@ -174,12 +183,15 @@ func (s *Service) Create(ctx context.Context, cmd model.ScheduledCommand) (uuid.
 	cmd.Enabled = true
 	id, err := s.store.CreateScheduledCommand(ctx, cmd)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return uuid.Nil, fmt.Errorf("failed to store scheduled command: %w", err)
 	}
 	cmd.ID = id
 
 	if s.cron != nil {
 		if err := s.setCronJobLocked(cmd); err != nil {
+			span.RecordError(err)
 			s.log.Error("Failed to add cron job after create", "id", id.String(), "error", err)
 		}
 	}
@@ -190,7 +202,16 @@ func (s *Service) Create(ctx context.Context, cmd model.ScheduledCommand) (uuid.
 
 // List returns all scheduled commands.
 func (s *Service) List(ctx context.Context) ([]model.ScheduledCommand, error) {
-	return s.store.ListScheduledCommands(ctx)
+	ctx, span := s.tracer.Start(ctx, "scheduler.List")
+	defer span.End()
+
+	cmds, err := s.store.ListScheduledCommands(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
+	}
+	return cmds, nil
 }
 
 // Update validates and replaces an existing scheduled command, then swaps its
@@ -243,12 +264,18 @@ func (s *Service) Update(ctx context.Context, cmd model.ScheduledCommand) (model
 
 // Delete removes a scheduled command from the cron runner and the database.
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
+	ctx, span := s.tracer.Start(ctx, "scheduler.Delete",
+		trace.WithAttributes(attribute.String("id", id.String())))
+	defer span.End()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.removeCronJobLocked(id)
 
 	if err := s.store.DeleteScheduledCommand(ctx, id); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("failed to delete scheduled command: %w", err)
 	}
 
@@ -330,12 +357,17 @@ func (s *Service) runJob(id uuid.UUID, schedule, command, groupJIDStr string) {
 	log := s.log.With("id", id, "schedule", schedule, "command", command, "group_jid", groupJIDStr)
 
 	if !s.checker.IsConnected() {
+		// Expected while the client reconnects: visible on the span, not an error
+		span.SetAttributes(attribute.Bool("skipped", true))
+		span.AddEvent("skipped", trace.WithAttributes(attribute.String("reason", "whatsapp_not_connected")))
 		log.Warn("Skipping scheduled command: WhatsApp not connected")
 		return
 	}
 
 	groupJID, err := types.ParseJID(groupJIDStr)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		log.Error("Invalid group JID in scheduled command", "error", err)
 		return
 	}
@@ -345,6 +377,7 @@ func (s *Service) runJob(id uuid.UUID, schedule, command, groupJIDStr string) {
 
 	if err := s.executor.ExecuteCommand(ctx, command, groupJID, ownJID); err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		log.Error("Scheduled command failed", "error", err)
 		return
 	}

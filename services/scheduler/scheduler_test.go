@@ -27,6 +27,7 @@ var fakeUpdatedAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 type fakeStore struct {
 	mu          sync.Mutex
 	cmds        []model.ScheduledCommand
+	listErr     error
 	updateErr   error
 	updateCalls int
 }
@@ -44,6 +45,9 @@ func (f *fakeStore) CreateScheduledCommand(ctx context.Context, cmd model.Schedu
 func (f *fakeStore) ListScheduledCommands(ctx context.Context) ([]model.ScheduledCommand, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	return append([]model.ScheduledCommand(nil), f.cmds...), nil
 }
 
