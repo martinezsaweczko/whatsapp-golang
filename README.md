@@ -12,6 +12,7 @@ WhatsApp bot written in Go (port of the [whatsappBot-node](../whatsappBot-node) 
 - **Newspaper kiosk**: `nacional`, `internacional`, `revista` list available files; `periodico: N`, `newspaper: N`, `magazine: N` reply with a one-time download link (RS256 JWT, max 3 uses, 5 min validity)
 - **Subscriptions**: `subs: keyword` notifies you (48h link) when a matching file arrives; `del_subs`, `list_subs`
 - **Weather**: `tiempo: city` — OpenWeatherMap data rewritten as a friendly note by GPT
+- **Weather forecast**: `prevision: city` (or `previsión: city`) — next 24 hours from the OpenWeatherMap 3-hour forecast, summarized as a friendly note by GPT
 - **TTS**: `audio: text` — replies with a Spanish voice note and deletes your command message
 - **Image generation**: `imagen: prompt` — Stability AI
 - **Electricity prices**: `electricidad` — PVPC chart from ESIOS (REE), with per-day cache and tomorrow's data after 19:00 Madrid time
