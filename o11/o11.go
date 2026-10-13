@@ -115,18 +115,21 @@ func newPropagator() propagation.TextMapPropagator {
 
 // newResource builds the OTel resource identifying this service in Tempo/Grafana
 func newResource(serviceName, serviceVersion, environment string) *resource.Resource {
-	res, err := resource.Merge(
-		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceName(serviceName),
-			semconv.ServiceVersion(serviceVersion),
-			semconv.DeploymentEnvironmentName(environment),
-		),
+	// Schemaless on purpose: these semconv keys are older than the ones the SDK
+	// uses for resource.Default(), and merging two different schema URLs fails.
+	own := resource.NewSchemaless(
+		semconv.ServiceName(serviceName),
+		semconv.ServiceVersion(serviceVersion),
+		semconv.DeploymentEnvironmentName(environment),
 	)
+
+	// The second resource wins on duplicate keys, so our attributes take
+	// precedence over the ones read from the environment (OTEL_SERVICE_NAME,
+	// OTEL_RESOURCE_ATTRIBUTES).
+	res, err := resource.Merge(resource.Default(), own)
 	if err != nil {
-		// Fallback to default resource; never fail the whole telemetry setup for this
-		return resource.Default()
+		// Never fail the whole telemetry setup for this, but keep the service identity
+		return own
 	}
 	return res
 }
