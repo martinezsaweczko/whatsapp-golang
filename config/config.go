@@ -72,7 +72,7 @@ func LoadConfig() (*Config, *ConfigError) {
 	var urlServer, dbPath, dbDSN, dbDriver, sessionDBPath string
 	var dbAutoCreate bool
 	var openAIAPIKey, openAIModel string
-	var weatherAPIKey, weatherAPIURL string
+	var weatherAPIKey, weatherAPIURL, weatherForecastAPIURL string
 	var weatherNoteWords int
 	var stabilityAPIKey, esiosAPIKey string
 	var commandTimeout int
@@ -126,6 +126,7 @@ func LoadConfig() (*Config, *ConfigError) {
 	flag.StringVar(&openAIModel, "openai-model", "gpt-4o-mini", "OpenAI model")
 	flag.StringVar(&weatherAPIKey, "weather-api-key", "", "OpenWeatherMap API key")
 	flag.StringVar(&weatherAPIURL, "weather-api-url", "https://api.openweathermap.org/data/2.5/weather", "OpenWeatherMap API URL")
+	flag.StringVar(&weatherForecastAPIURL, "weather-forecast-api-url", "https://api.openweathermap.org/data/2.5/forecast", "OpenWeatherMap 5 day / 3 hour forecast API URL")
 	flag.IntVar(&weatherNoteWords, "weather-note-words", 200, "Max words in the weather note")
 	flag.StringVar(&stabilityAPIKey, "stability-api-key", "", "Stability AI API key")
 	flag.StringVar(&esiosAPIKey, "esios-api-key", "", "ESIOS (REE) API token")
@@ -213,6 +214,7 @@ func LoadConfig() (*Config, *ConfigError) {
 		OpenAIModel:            openAIModel,
 		WeatherAPIKey:          weatherAPIKey,
 		WeatherAPIURL:          weatherAPIURL,
+		WeatherForecastAPIURL:  weatherForecastAPIURL,
 		WeatherNoteWords:       weatherNoteWords,
 		StabilityAPIKey:        stabilityAPIKey,
 		EsiosAPIKey:            esiosAPIKey,

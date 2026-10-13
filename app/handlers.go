@@ -130,7 +130,7 @@ func (app *App) initAndWire() error {
 
 	weatherSvc := weather.New(
 		services.NewExternalClient("openweather", 15*time.Second, serviceMetrics),
-		cfg.Bot.WeatherAPIURL, cfg.Bot.WeatherAPIKey, cfg.Bot.WeatherNoteWords,
+		cfg.Bot.WeatherAPIURL, cfg.Bot.WeatherForecastAPIURL, cfg.Bot.WeatherAPIKey, cfg.Bot.WeatherNoteWords,
 		aiSvc, log, tp,
 	)
 

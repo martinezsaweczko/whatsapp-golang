@@ -35,13 +35,14 @@ type BotConfig struct {
 	SessionDBPath string // whatsmeow session store
 
 	// External APIs
-	OpenAIAPIKey     string
-	OpenAIModel      string
-	WeatherAPIKey    string
-	WeatherAPIURL    string
-	WeatherNoteWords int
-	StabilityAPIKey  string
-	EsiosAPIKey      string
+	OpenAIAPIKey          string
+	OpenAIModel           string
+	WeatherAPIKey         string
+	WeatherAPIURL         string
+	WeatherForecastAPIURL string
+	WeatherNoteWords      int
+	StabilityAPIKey       string
+	EsiosAPIKey           string
 
 	// CommandTimeout is the max execution time (seconds) for a WhatsApp command
 	CommandTimeout int

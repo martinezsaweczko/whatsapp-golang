@@ -75,6 +75,7 @@ func helpText(version string) string {
 		"Para transferir un mensaje a audio: audio: *mensaje*\n" +
 		"Para crear una imagen con texto: imagen: *texto*\n" +
 		"Para obtener el tiempo de una ciudad: tiempo: *ciudad*\n" +
+		"Para obtener la previsión de las próximas 24 horas de una ciudad: prevision: *ciudad*\n" +
 		"Para obtener el grafico del precio del KWH en la peninsula escribe: electricidad\n" +
 		"Cómprame un cafe si quieres: https://bmc.link/bonkillaT\n" +
 		"Version app: " + version + "\n"
