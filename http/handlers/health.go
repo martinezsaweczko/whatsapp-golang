@@ -25,11 +25,10 @@ type HealthHandlerConfig struct {
 
 // HealthHandler handles health check requests
 type HealthHandler struct {
-	log           *slog.Logger
-	observability *o11.ObservabilityInst
-	cfg           *config.Config
-	handlerCalls  metric.Int64Counter
-	basePath      string
+	log          *slog.Logger
+	cfg          *config.Config
+	handlerCalls metric.Int64Counter
+	basePath     string
 }
 
 // NewHealthHandler creates a new health handler
@@ -41,11 +40,10 @@ func (h *HealthHandlerConfig) NewHealthHandler() (*HealthHandler, error) {
 	}
 
 	return &HealthHandler{
-		log:           h.Log,
-		observability: h.Observability,
-		cfg:           h.Cfg,
-		handlerCalls:  handlerCalls,
-		basePath:      h.BasePath,
+		log:          h.Log,
+		cfg:          h.Cfg,
+		handlerCalls: handlerCalls,
+		basePath:     h.BasePath,
 	}, nil
 }
 
@@ -69,10 +67,8 @@ func (h *HealthHandler) RegisterRoutes(router Router, middlewares ...middleware.
 //	@Success      200  {object}  model.HealthInfo
 //	@Router       /api/v1/health [get]
 func (h *HealthHandler) getHealth(w http.ResponseWriter, r *http.Request) {
-	h.log.Info("Received request for health status")
-
-	_, span := h.observability.Trace.Tracer("health_handler").Start(r.Context(), "getHealthHandler")
-	defer span.End()
+	// Probed continuously by the orchestrator: no span and no Info log per request
+	h.log.Debug("Received request for health status")
 
 	healthInfo := &model.HealthInfo{
 		Status:    "ok",

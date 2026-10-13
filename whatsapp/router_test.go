@@ -15,7 +15,11 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric/noop"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/protobuf/proto"
 )
@@ -455,6 +459,91 @@ func TestExecuteCommandRequiresSender(t *testing.T) {
 	err := router.ExecuteCommand(context.Background(), "cmd", types.NewJID("123@g.us", types.GroupServer), types.EmptyJID)
 	if err == nil {
 		t.Fatal("expected error when sender not set")
+	}
+}
+
+// Scheduled runs must produce the same whatsapp.command.<name> span as real
+// messages, as a child of the caller's span, and mark it failed when the
+// handler returns an error.
+func TestExecuteCommandTracing(t *testing.T) {
+	handlerErr := errors.New("handler error")
+
+	tests := []struct {
+		name       string
+		handlerErr error
+		wantStatus codes.Code
+		wantEvents int
+	}{
+		{name: "handler succeeds", wantStatus: codes.Unset},
+		{name: "handler fails", handlerErr: handlerErr, wantStatus: codes.Error, wantEvents: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := tracetest.NewSpanRecorder()
+			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+			t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+			log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+			metrics, err := o11.NewCommandMetrics(noop.NewMeterProvider())
+			if err != nil {
+				t.Fatalf("failed to create metrics: %v", err)
+			}
+			router := NewRouter(log, metrics, tp, nil, 5*time.Second)
+			router.SetSender(&fakeSender{})
+
+			var handlerSpan trace.SpanContext
+			router.Register("electricidad", regexp.MustCompile(`^(?i)elec(tricidad)?`), func(ctx context.Context, _ Sender, _ IncomingMessage) error {
+				handlerSpan = trace.SpanContextFromContext(ctx)
+				return tt.handlerErr
+			})
+
+			chat := types.NewJID("123456789", types.GroupServer)
+			senderJID := types.NewJID("bot", types.DefaultUserServer)
+			parentCtx, parent := tp.Tracer("test").Start(context.Background(), "scheduler.runJob")
+			err = router.ExecuteCommand(parentCtx, "electricidad", chat, senderJID)
+			parent.End()
+
+			if !errors.Is(err, tt.handlerErr) {
+				t.Fatalf("ExecuteCommand error = %v, want %v", err, tt.handlerErr)
+			}
+
+			var span sdktrace.ReadOnlySpan
+			for _, s := range recorder.Ended() {
+				if s.Name() == "whatsapp.command.electricidad" {
+					span = s
+				}
+			}
+			if span == nil {
+				t.Fatalf("no whatsapp.command.electricidad span among %d ended span(s)", len(recorder.Ended()))
+			}
+			if span.Parent().SpanID() != parent.SpanContext().SpanID() {
+				t.Error("command span should be a child of the caller's span")
+			}
+			if handlerSpan.SpanID() != span.SpanContext().SpanID() {
+				t.Error("handler context should carry the command span")
+			}
+			if got := span.Status().Code; got != tt.wantStatus {
+				t.Errorf("span status = %v, want %v", got, tt.wantStatus)
+			}
+			if got := len(span.Events()); got != tt.wantEvents {
+				t.Errorf("span has %d event(s), want %d", got, tt.wantEvents)
+			}
+
+			want := map[string]string{
+				"command": "electricidad",
+				"chat":    chat.String(),
+				"sender":  senderJID.String(),
+			}
+			for _, kv := range span.Attributes() {
+				if v, ok := want[string(kv.Key)]; ok && kv.Value.AsString() == v {
+					delete(want, string(kv.Key))
+				}
+			}
+			if len(want) != 0 {
+				t.Errorf("command span is missing attributes %v", want)
+			}
+		})
 	}
 }
 

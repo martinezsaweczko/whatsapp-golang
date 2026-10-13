@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/martinezsaweczko/whatsappBot-golang/whatsapp"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -85,6 +86,8 @@ func (s *Service) Report(ctx context.Context, city string) (string, error) {
 
 	raw, err := s.fetch(ctx, city)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", err
 	}
 
@@ -93,7 +96,10 @@ func (s *Service) Report(ctx context.Context, city string) (string, error) {
 
 	note, err := s.ai.Complete(ctx, prompt)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate weather note: %w", err)
+		err = fmt.Errorf("failed to generate weather note: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", err
 	}
 
 	return note, nil

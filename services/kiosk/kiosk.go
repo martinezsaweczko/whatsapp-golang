@@ -16,6 +16,7 @@ import (
 
 	"github.com/martinezsaweczko/whatsappBot-golang/o11"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -96,17 +97,23 @@ func New(categories []Category, urlServer string, store UsageStore, jwt TokenIss
 
 // List returns the files of a category within the retention window, newest first
 func (s *Service) List(ctx context.Context, category string) ([]FileEntry, error) {
-	_, span := s.tracer.Start(ctx, "kiosk.ListFiles", trace.WithAttributes(attribute.String("category", category)))
+	ctx, span := s.tracer.Start(ctx, "kiosk.ListFiles", trace.WithAttributes(attribute.String("category", category)))
 	defer span.End()
 
 	cat, ok := s.categories[category]
 	if !ok {
-		return nil, fmt.Errorf("unknown kiosk category: %s", category)
+		err := fmt.Errorf("unknown kiosk category: %s", category)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	dirEntries, err := os.ReadDir(cat.Dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read directory %s: %w", cat.Dir, err)
+		err = fmt.Errorf("failed to read directory %s: %w", cat.Dir, err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	cutoff := time.Now().Add(-cat.Retention)
@@ -114,7 +121,7 @@ func (s *Service) List(ctx context.Context, category string) ([]FileEntry, error
 	for _, e := range dirEntries {
 		info, err := e.Info()
 		if err != nil {
-			s.log.Warn("Skipping unreadable entry", "dir", cat.Dir, "entry", e.Name(), "error", err)
+			s.log.WarnContext(ctx, "Skipping unreadable entry", "dir", cat.Dir, "entry", e.Name(), "error", err)
 			continue
 		}
 		if !info.Mode().IsRegular() {
@@ -141,11 +148,16 @@ func (s *Service) ListMessage(ctx context.Context, category string) (string, err
 
 	cat, ok := s.categories[category]
 	if !ok {
-		return "", fmt.Errorf("unknown kiosk category: %s", category)
+		err := fmt.Errorf("unknown kiosk category: %s", category)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", err
 	}
 
 	files, err := s.List(ctx, category)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", err
 	}
 
@@ -172,23 +184,34 @@ func (s *Service) Link(ctx context.Context, category string, index int, user str
 
 	cat, ok := s.categories[category]
 	if !ok {
-		return "", "", fmt.Errorf("unknown kiosk category: %s", category)
+		err := fmt.Errorf("unknown kiosk category: %s", category)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", "", err
 	}
 
 	files, err := s.List(ctx, category)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", "", err
 	}
 
 	if index < 0 || index >= len(files) {
-		return "", "", fmt.Errorf("índice %d fuera de rango, hay %d ficheros disponibles en %s", index, len(files), category)
+		err := fmt.Errorf("índice %d fuera de rango, hay %d ficheros disponibles en %s", index, len(files), category)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", "", err
 	}
 
 	fileName := files[index].Name
 
 	token, err := s.jwt.GenerateTokenWithExpiry("periodico", linkTokenTTL)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to generate download token: %w", err)
+		err = fmt.Errorf("failed to generate download token: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", "", err
 	}
 
 	link := url.URL{
@@ -199,6 +222,8 @@ func (s *Service) Link(ctx context.Context, category string, index int, user str
 	}
 
 	if err := s.store.ReportUserUsage(ctx, user, fileName); err != nil {
+		// Not fatal: the link is still delivered
+		span.RecordError(err)
 		s.log.Warn("Failed to report user usage", "user", user, "file", fileName, "error", err)
 	}
 

@@ -16,6 +16,7 @@ import (
 	"github.com/martinezsaweczko/whatsappBot-golang/whatsapp"
 	"go.mau.fi/whatsmeow/types"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -109,17 +110,25 @@ func (s *Service) Subscribe(ctx context.Context, msg whatsapp.IncomingMessage, t
 
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return fmt.Errorf("la subscripción no puede estar vacía")
+		err := fmt.Errorf("la subscripción no puede estar vacía")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
 	}
 
 	users := userIdentities(msg)
 	if len(users) == 0 {
-		return fmt.Errorf("no se ha podido identificar al remitente")
+		err := fmt.Errorf("no se ha podido identificar al remitente")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
 	}
 	user := users[0]
 	s.log.Info("Processing subscription", "user", msg.PushName, "text", text)
 
 	if err := s.store.SaveSubscription(ctx, text, user); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 	s.eventsTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("action", "create")))
@@ -135,6 +144,8 @@ func (s *Service) Delete(ctx context.Context, msg whatsapp.IncomingMessage) erro
 	s.log.Info("Subscription delete request", "user", msg.PushName)
 
 	if err := s.store.DeleteSubscription(ctx, users); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 	s.eventsTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("action", "delete")))
@@ -149,6 +160,8 @@ func (s *Service) List(ctx context.Context, msg whatsapp.IncomingMessage) (strin
 	users := userIdentities(msg)
 	subs, err := s.store.ReturnSubscriptions(ctx, users)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", err
 	}
 
@@ -176,11 +189,16 @@ func (s *Service) Notify(ctx context.Context, sender whatsapp.Sender, category, 
 
 	prefix, ok := s.urlPrefixes[category]
 	if !ok {
-		return fmt.Errorf("unknown category: %s", category)
+		err := fmt.Errorf("unknown category: %s", category)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
 	}
 
 	users, err := s.store.MatchSubscriptions(ctx, filename)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
@@ -226,7 +244,10 @@ func (s *Service) Notify(ctx context.Context, sender whatsapp.Sender, category, 
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("some notifications failed: %s", strings.Join(errs, "; "))
+		err := fmt.Errorf("some notifications failed: %s", strings.Join(errs, "; "))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
 	}
 	return nil
 }

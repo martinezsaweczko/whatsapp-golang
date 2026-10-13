@@ -14,6 +14,7 @@ import (
 	"github.com/martinezsaweczko/whatsappBot-golang/whatsapp"
 	"github.com/sashabaranov/go-openai"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -75,10 +76,16 @@ func (s *Service) Complete(ctx context.Context, prompt string) (string, error) {
 		},
 	})
 	if err != nil {
-		return "", fmt.Errorf("OpenAI completion failed: %w", err)
+		err = fmt.Errorf("OpenAI completion failed: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", err
 	}
 	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("OpenAI returned no choices")
+		err := fmt.Errorf("OpenAI returned no choices")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", err
 	}
 
 	return resp.Choices[0].Message.Content, nil

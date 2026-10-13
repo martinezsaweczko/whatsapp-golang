@@ -11,6 +11,7 @@ import (
 	logglobal "go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -99,5 +100,59 @@ func TestSetupOTelSDKWithoutExporters(t *testing.T) {
 	// Each cleanup runs once: a second call has nothing left to do.
 	if err := shutdown(ctx); err != nil {
 		t.Errorf("second shutdown should be a no-op, got: %v", err)
+	}
+}
+
+// resourceAttr returns the value of a resource attribute, or "" when absent.
+func resourceAttr(res *resource.Resource, key string) string {
+	for _, kv := range res.Attributes() {
+		if string(kv.Key) == key {
+			return kv.Value.Emit()
+		}
+	}
+	return ""
+}
+
+// The resource is what names the service in Tempo/Grafana: our own attributes
+// must survive the merge with the SDK defaults and win over the environment.
+func TestNewResourceIdentifiesService(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+	}{
+		{name: "no environment overrides"},
+		{name: "OTEL_SERVICE_NAME set to another value", env: map[string]string{
+			"OTEL_SERVICE_NAME": "http://tempo.monitoring.svc.cluster.local:3200",
+		}},
+		{name: "OTEL_RESOURCE_ATTRIBUTES set to other values", env: map[string]string{
+			"OTEL_RESOURCE_ATTRIBUTES": "service.name=other,service.version=9.9.9,deployment.environment.name=dev",
+		}},
+	}
+
+	want := map[string]string{
+		"service.name":                "whatsappbot-golang",
+		"service.version":             "1.2.3",
+		"deployment.environment.name": "prod",
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Start from a known environment so the host cannot influence the result.
+			// resource.Default() reads the environment only once per process, so
+			// these cases pin the precedence whichever test triggers that read.
+			t.Setenv("OTEL_SERVICE_NAME", "")
+			t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "")
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+
+			res := newResource("whatsappbot-golang", "1.2.3", "prod")
+
+			for key, value := range want {
+				if got := resourceAttr(res, key); got != value {
+					t.Errorf("resource attribute %s = %q, want %q", key, got, value)
+				}
+			}
+		})
 	}
 }

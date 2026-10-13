@@ -12,6 +12,7 @@ import (
 	"github.com/martinezsaweczko/whatsappBot-golang/o11"
 	"github.com/martinezsaweczko/whatsappBot-golang/whatsapp"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -93,6 +94,8 @@ func (s *Service) buildChartData(ctx context.Context, todayStr, tomorrowStr stri
 		s.log.Info("Today's JSON found, loading from file")
 		todayCache, err := s.loadCache(todayStr)
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return nil, err
 		}
 		s.cacheTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("result", "hit")))
@@ -107,16 +110,21 @@ func (s *Service) buildChartData(ctx context.Context, todayStr, tomorrowStr stri
 			s.log.Info("Next-day fetch window detected and tomorrow not yet fetched, querying API")
 			start, end, err := dayRange(todayStr, tomorrowStr)
 			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
 				return nil, err
 			}
 			raw, err := s.fetch(ctx, start, end)
 			if err != nil {
+				// Not fatal: today's chart is still served
+				span.RecordError(err)
 				s.log.Error("Failed to fetch tomorrow data", "error", err)
 			} else if len(raw) > 0 {
 				_, tomorrowData := splitByDate(raw, todayStr, tomorrowStr)
 				if len(tomorrowData) > 0 {
 					s.log.Info("Tomorrow's data found in API response, saving and merging")
 					if _, err := s.saveCache(tomorrowStr, tomorrowData); err != nil {
+						span.RecordError(err)
 						s.log.Error("Failed to save tomorrow cache", "error", err)
 					}
 					s.updateTomorrowMetadata(todayStr, true)
@@ -150,22 +158,33 @@ func (s *Service) buildChartData(ctx context.Context, todayStr, tomorrowStr stri
 
 	start, end, err := dayRange(todayStr, tomorrowStr)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 	raw, err := s.fetch(ctx, start, end)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 	if len(raw) == 0 {
-		return nil, fmt.Errorf("no data available from API")
+		err := fmt.Errorf("no data available from API")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	todayData, tomorrowData := splitByDate(raw, todayStr, tomorrowStr)
 	if len(todayData) == 0 {
-		return nil, fmt.Errorf("no data available for today")
+		err := fmt.Errorf("no data available for today")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	if _, err := s.saveCache(todayStr, todayData); err != nil {
+		span.RecordError(err)
 		s.log.Error("Failed to save today's cache", "error", err)
 	}
 
@@ -177,6 +196,7 @@ func (s *Service) buildChartData(ctx context.Context, todayStr, tomorrowStr stri
 	if inWindow && len(tomorrowData) > 0 {
 		s.log.Info("Tomorrow's data found in API response, saving and merging")
 		if _, err := s.saveCache(tomorrowStr, tomorrowData); err != nil {
+			span.RecordError(err)
 			s.log.Error("Failed to save tomorrow cache", "error", err)
 		}
 		s.updateTomorrowMetadata(todayStr, true)
@@ -205,17 +225,22 @@ func (s *Service) PriceChart(ctx context.Context) ([]byte, error) {
 
 	data, err := s.buildChartData(ctx, todayStr, tomorrowStr)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 
 	png, err := s.renderChart(data)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 
 	// Persist alongside the cache (same name as the Node version) for debugging
 	pngPath := s.cacheDir + "/kwh-" + todayStr + ".png"
 	if err := os.WriteFile(pngPath, png, 0o644); err != nil {
+		span.RecordError(err)
 		s.log.Warn("Failed to persist chart PNG", "error", err)
 	}
 

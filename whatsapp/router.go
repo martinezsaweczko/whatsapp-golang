@@ -124,7 +124,23 @@ func (r *Router) ExecuteCommand(ctx context.Context, body string, chat, senderJI
 	}
 
 	msg := NewSyntheticMessage(chat, senderJID, body)
-	return matched.Handler(ctx, r.sender, msg)
+
+	// Same span as execute, so scheduled runs look like real messages in traces.
+	// The handler still runs synchronously on the caller's context.
+	ctx, span := r.tracer.Start(ctx, "whatsapp.command."+matched.Name,
+		trace.WithAttributes(
+			attribute.String("command", matched.Name),
+			attribute.String("chat", msg.Chat.String()),
+			attribute.String("sender", msg.Sender.String()),
+		))
+	defer span.End()
+
+	if err := matched.Handler(ctx, r.sender, msg); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+	return nil
 }
 
 // SetFallback sets the handler invoked when no command matches and the bot is mentioned

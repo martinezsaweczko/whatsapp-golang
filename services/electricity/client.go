@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"go.opentelemetry.io/otel/codes"
 )
 
 const (
@@ -43,23 +45,35 @@ func (s *Service) fetch(ctx context.Context, startDate, endDate time.Time) ([]Pr
 	reqURL := s.baseURL + indicatorID + "?" + params.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build ESIOS request: %w", err)
+		err = fmt.Errorf("failed to build ESIOS request: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 	req.Header.Set("x-api-key", s.apiKey)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("ESIOS request failed: %w", err)
+		err = fmt.Errorf("ESIOS request failed: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ESIOS API returned status %d", resp.StatusCode)
+		err := fmt.Errorf("ESIOS API returned status %d", resp.StatusCode)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	var parsed esiosResponse
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return nil, fmt.Errorf("failed to parse ESIOS response: %w", err)
+		err = fmt.Errorf("failed to parse ESIOS response: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	points := make([]PricePoint, 0, len(parsed.Indicator.Values))
