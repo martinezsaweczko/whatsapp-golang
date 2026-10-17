@@ -356,6 +356,18 @@ func (s *Service) runJob(id uuid.UUID, schedule, command, groupJIDStr string) {
 
 	log := s.log.With("id", id, "schedule", schedule, "command", command, "group_jid", groupJIDStr)
 
+	// robfig/cron adds no recovery and the scheduled path calls the handler
+	// directly, so a panicking handler would otherwise crash the process.
+	// Deferred after span.End, so it runs first and the span records it.
+	defer func() {
+		if rec := recover(); rec != nil {
+			err := fmt.Errorf("scheduled command panicked: %v", rec)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			log.Error("Scheduled command panicked", "panic", fmt.Sprint(rec))
+		}
+	}()
+
 	if !s.checker.IsConnected() {
 		// Expected while the client reconnects: visible on the span, not an error
 		span.SetAttributes(attribute.Bool("skipped", true))
