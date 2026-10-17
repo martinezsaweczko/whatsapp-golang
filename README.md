@@ -13,6 +13,7 @@ WhatsApp bot written in Go (port of the [whatsappBot-node](../whatsappBot-node) 
 - **Subscriptions**: `subs: keyword` notifies you (48h link) when a matching file arrives; `del_subs`, `list_subs`
 - **Weather**: `tiempo: city` — OpenWeatherMap data rewritten as a friendly note by GPT
 - **Weather forecast**: `prevision: city` (or `previsión: city`) — next 24 hours from the OpenWeatherMap 3-hour forecast, summarized as a friendly note by GPT
+- **Quote**: `quote` — random quote from API Ninjas with its Spanish translation by GPT
 - **TTS**: `audio: text` — replies with a Spanish voice note and deletes your command message
 - **Image generation**: `imagen: prompt` — Stability AI
 - **Electricity prices**: `electricidad` — PVPC chart from ESIOS (REE), with per-day cache and tomorrow's data after 19:00 Madrid time
@@ -28,7 +29,7 @@ cmd/main.go        bootstrap
 app/               App builder + wiring
 config/            CLI flag configuration with validation
 whatsapp/          whatsmeow adapter (Sender iface), command router (regex registry)
-services/          kiosk, subscription, weather, tts, ai, imagegen, electricity, jwt
+services/          kiosk, subscription, weather, quote, tts, ai, imagegen, electricity, jwt
 repository/        SQLite (modernc, no CGO), parameterized queries, instrumented decorator
 http/              handlers (fileserver, trigger, health, version, metrics) + middleware
 o11/               OTel setup, metrics factories, trace-aware slog handler
@@ -117,6 +118,7 @@ First login shows a QR code in the terminal (or use `-bot-pair-phone 34XXXXXXXXX
 | `-db-path` / `-session-db-path` | `/tmp/db.sqlite`, `/tmp/session.db` | SQLite paths |
 | `-openai-api-key` / `-openai-model` | / `gpt-4o-mini` | OpenAI |
 | `-weather-api-key` | | OpenWeatherMap |
+| `-quote-api-key` | | API Ninjas (quote command) |
 | `-stability-api-key` | | Stability AI |
 | `-esios-api-key` | | ESIOS (REE) |
 | `-o11-tracer-endpoint` | | OTLP gRPC endpoint (e.g. `tempo:4317`) |

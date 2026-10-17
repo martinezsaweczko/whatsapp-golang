@@ -16,6 +16,7 @@ import (
 	"github.com/martinezsaweczko/whatsappBot-golang/services/electricity"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/imagegen"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/kiosk"
+	"github.com/martinezsaweczko/whatsappBot-golang/services/quote"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/scheduler"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/subscription"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/tts"
@@ -131,6 +132,12 @@ func (app *App) initAndWire() error {
 	weatherSvc := weather.New(
 		services.NewExternalClient("openweather", 15*time.Second, serviceMetrics),
 		cfg.Bot.WeatherAPIURL, cfg.Bot.WeatherForecastAPIURL, cfg.Bot.WeatherAPIKey, cfg.Bot.WeatherNoteWords,
+		aiSvc, log, tp,
+	)
+
+	quoteSvc := quote.New(
+		services.NewExternalClient("apininjas", 15*time.Second, serviceMetrics),
+		cfg.Bot.QuoteAPIURL, cfg.Bot.QuoteAPIKey,
 		aiSvc, log, tp,
 	)
 
@@ -307,6 +314,9 @@ func (app *App) initAndWire() error {
 	for _, cmd := range electricitySvc.Commands() {
 		app.router.Register(cmd.Name, cmd.Pattern, cmd.Handler)
 	}
+	for _, cmd := range quoteSvc.Commands() {
+		app.router.Register(cmd.Name, cmd.Pattern, cmd.Handler)
+	}
 	if cfg.Bot.PDFChannelJID != "" {
 		if err := app.router.RegisterChannelMediaHandler(cfg.Bot.PDFChannelJID, channelpdfHandler); err != nil {
 			return fmt.Errorf("failed to register channel media handler: %w", err)
@@ -341,7 +351,7 @@ func (app *App) initAndWire() error {
 	log.Info("Application wired successfully",
 		"commands", len(kioskSvc.Commands(cfg.Bot.BotNumber, app.buildInfo.Version))+
 			len(subsSvc.Commands())+len(ttsSvc.Commands())+len(weatherSvc.Commands())+
-			len(imagegenSvc.Commands())+len(electricitySvc.Commands()))
+			len(imagegenSvc.Commands())+len(electricitySvc.Commands())+len(quoteSvc.Commands()))
 
 	return nil
 }
