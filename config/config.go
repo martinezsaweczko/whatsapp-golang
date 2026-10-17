@@ -74,6 +74,7 @@ func LoadConfig() (*Config, *ConfigError) {
 	var openAIAPIKey, openAIModel string
 	var weatherAPIKey, weatherAPIURL, weatherForecastAPIURL string
 	var weatherNoteWords int
+	var quoteAPIKey, quoteAPIURL string
 	var stabilityAPIKey, esiosAPIKey string
 	var commandTimeout int
 	var pairPhone, electricityCacheDir string
@@ -128,6 +129,8 @@ func LoadConfig() (*Config, *ConfigError) {
 	flag.StringVar(&weatherAPIURL, "weather-api-url", "https://api.openweathermap.org/data/2.5/weather", "OpenWeatherMap API URL")
 	flag.StringVar(&weatherForecastAPIURL, "weather-forecast-api-url", "https://api.openweathermap.org/data/2.5/forecast", "OpenWeatherMap 5 day / 3 hour forecast API URL")
 	flag.IntVar(&weatherNoteWords, "weather-note-words", 200, "Max words in the weather note")
+	flag.StringVar(&quoteAPIKey, "quote-api-key", "", "API Ninjas key for the quote command")
+	flag.StringVar(&quoteAPIURL, "quote-api-url", "https://api.api-ninjas.com/v2/randomquotes", "API Ninjas random quotes API URL")
 	flag.StringVar(&stabilityAPIKey, "stability-api-key", "", "Stability AI API key")
 	flag.StringVar(&esiosAPIKey, "esios-api-key", "", "ESIOS (REE) API token")
 	flag.IntVar(&commandTimeout, "command-timeout", 60, "Max execution time in seconds for a WhatsApp command")
@@ -216,6 +219,8 @@ func LoadConfig() (*Config, *ConfigError) {
 		WeatherAPIURL:          weatherAPIURL,
 		WeatherForecastAPIURL:  weatherForecastAPIURL,
 		WeatherNoteWords:       weatherNoteWords,
+		QuoteAPIKey:            quoteAPIKey,
+		QuoteAPIURL:            quoteAPIURL,
 		StabilityAPIKey:        stabilityAPIKey,
 		EsiosAPIKey:            esiosAPIKey,
 		CommandTimeout:         commandTimeout,

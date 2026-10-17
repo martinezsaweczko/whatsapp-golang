@@ -41,6 +41,8 @@ type BotConfig struct {
 	WeatherAPIURL         string
 	WeatherForecastAPIURL string
 	WeatherNoteWords      int
+	QuoteAPIKey           string
+	QuoteAPIURL           string
 	StabilityAPIKey       string
 	EsiosAPIKey           string
 
