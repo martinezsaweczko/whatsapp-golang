@@ -15,6 +15,9 @@ import (
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
 	"github.com/robfig/cron/v3"
 	"go.mau.fi/whatsmeow/types"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
@@ -236,6 +239,40 @@ func TestRunJobExecutesWhenConnected(t *testing.T) {
 	}
 	if exec.execs[0].Chat.String() != "123456789@g.us" {
 		t.Fatalf("unexpected chat: %s", exec.execs[0].Chat.String())
+	}
+}
+
+// panickingExecutor panics on every execution, like a buggy command handler.
+type panickingExecutor struct{ fakeExecutor }
+
+func (p *panickingExecutor) ExecuteCommand(ctx context.Context, body string, chat, senderJID types.JID) error {
+	panic("handler exploded")
+}
+
+func TestRunJobRecoversPanic(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	exec := &panickingExecutor{fakeExecutor{commands: []string{"electricidad"}}}
+	checker := &fakeChecker{connected: true, ownJID: types.NewJID("bot", types.DefaultUserServer)}
+	svc, err := New(&fakeStore{}, exec, checker, testLogger(), tp, Config{Timezone: "Europe/Madrid"})
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	// Must return normally: an unrecovered panic here would crash the process
+	svc.runJob(uuid.Must(uuid.NewV7()), "0 8 * * *", "electricidad", "123456789@g.us")
+
+	span := singleSpan(t, recorder, "scheduler.runJob")
+	if span.Status().Code != codes.Error {
+		t.Errorf("span status = %v, want %v", span.Status().Code, codes.Error)
+	}
+	if !strings.Contains(span.Status().Description, "handler exploded") {
+		t.Errorf("span status description = %q, want the panic value", span.Status().Description)
+	}
+	if !hasEvent(span, "exception") {
+		t.Error("expected the panic to be recorded as an exception event")
 	}
 }
 

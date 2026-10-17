@@ -1,12 +1,14 @@
 package electricity
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -277,5 +279,49 @@ func TestRenderChart(t *testing.T) {
 	}
 	if len(png) < 8 || png[0] != 0x89 {
 		t.Fatal("dual output is not a PNG")
+	}
+}
+
+func TestRenderChartConcurrent(t *testing.T) {
+	svc := newTestService(t, http.DefaultClient)
+
+	// A fixed past day keeps the "current hour" marker out of every render,
+	// so the serial and concurrent outputs are comparable byte for byte
+	day := time.Date(2024, time.January, 15, 0, 0, 0, 0, time.UTC)
+	var points []PricePoint
+	for h := 0; h < 24; h++ {
+		points = append(points, PricePoint{
+			Datetime: day.Add(time.Duration(h) * time.Hour),
+			Value:    90 + float64(h%5)*30, // mix of tiers
+		})
+	}
+	data := &chartData{TodayDate: day.Format("2006-01-02"), Points: points}
+
+	want, err := svc.renderChart(data)
+	if err != nil {
+		t.Fatalf("serial renderChart failed: %v", err)
+	}
+
+	const workers = 8
+	results := make([][]byte, workers)
+	errs := make([]error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			results[i], errs[i] = svc.renderChart(data)
+		}(i)
+	}
+	wg.Wait()
+
+	for i := 0; i < workers; i++ {
+		if errs[i] != nil {
+			t.Errorf("render %d failed: %v", i, errs[i])
+			continue
+		}
+		if !bytes.Equal(results[i], want) {
+			t.Errorf("render %d differs from the serial render", i)
+		}
 	}
 }

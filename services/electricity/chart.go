@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"math"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/fogleman/gg"
@@ -35,43 +36,71 @@ var (
 	colorFill      = color.RGBA{R: 0xD6, G: 0xEB, B: 0xF7, A: 0xff}
 )
 
-// font faces loaded once and reused for all renders
+// Embedded fonts parsed once per process. A parsed *opentype.Font is safe
+// for concurrent use (each Face owns its own sfnt.Buffer), while a font.Face
+// is not, so every render creates its own faces from these.
 var (
-	regularFace fontFaceCache
-	boldFace    fontFaceCache
+	parseRegularFont = sync.OnceValues(func() (*opentype.Font, error) { return parseFont(goregular.TTF) })
+	parseBoldFont    = sync.OnceValues(func() (*opentype.Font, error) { return parseFont(gobold.TTF) })
 )
 
-type fontFaceCache struct {
-	face font.Face
-	size float64
+func parseFont(data []byte) (*opentype.Font, error) {
+	f, err := opentype.Parse(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse font: %w", err)
+	}
+	return f, nil
 }
 
-func (f *fontFaceCache) load(data []byte, size float64) error {
-	if f.face != nil && f.size == size {
-		return nil
-	}
-	font, err := opentype.Parse(data)
+// chartFaces holds the font faces owned by a single render
+type chartFaces struct {
+	title    font.Face // bold 22
+	subtitle font.Face // regular 14
+	label    font.Face // regular 12
+}
+
+func newChartFaces() (*chartFaces, error) {
+	regular, err := parseRegularFont()
 	if err != nil {
-		return fmt.Errorf("failed to parse font: %w", err)
+		return nil, err
 	}
-	face, err := opentype.NewFace(font, &opentype.FaceOptions{
+	bold, err := parseBoldFont()
+	if err != nil {
+		return nil, err
+	}
+	faces := &chartFaces{}
+	if faces.title, err = newFace(bold, 22); err != nil {
+		return nil, err
+	}
+	if faces.subtitle, err = newFace(regular, 14); err != nil {
+		faces.Close()
+		return nil, err
+	}
+	if faces.label, err = newFace(regular, 12); err != nil {
+		faces.Close()
+		return nil, err
+	}
+	return faces, nil
+}
+
+func newFace(f *opentype.Font, size float64) (font.Face, error) {
+	face, err := opentype.NewFace(f, &opentype.FaceOptions{
 		Size: size,
 		DPI:  72,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create font face: %w", err)
+		return nil, fmt.Errorf("failed to create font face: %w", err)
 	}
-	f.face = face
-	f.size = size
-	return nil
+	return face, nil
 }
 
-func setFontFace(dc *gg.Context, cache *fontFaceCache, data []byte, size float64) error {
-	if err := cache.load(data, size); err != nil {
-		return err
+// Close releases the faces created so far
+func (c *chartFaces) Close() {
+	for _, face := range []font.Face{c.title, c.subtitle, c.label} {
+		if face != nil {
+			_ = face.Close()
+		}
 	}
-	dc.SetFontFace(cache.face)
-	return nil
 }
 
 // tierForPrice returns the price tier color (€/kWh)
@@ -191,6 +220,12 @@ func (s *Service) renderChart(data *chartData) ([]byte, error) {
 	minPrice = math.Floor(math.Max(0, minPrice-0.015)*100) / 100
 	maxPrice = math.Ceil((maxPrice+0.015)*100) / 100
 
+	faces, err := newChartFaces()
+	if err != nil {
+		return nil, err
+	}
+	defer faces.Close()
+
 	dc := gg.NewContext(width, chartHeight)
 	dc.SetRGB(1, 1, 1)
 	dc.Clear()
@@ -212,23 +247,17 @@ func (s *Service) renderChart(data *chartData) ([]byte, error) {
 	if data.IsDualDay {
 		title = "Precio de la electricidad: " + data.TodayDate + " a " + data.TomorrowDate
 	}
-	if err := setFontFace(dc, &boldFace, gobold.TTF, 22); err != nil {
-		return nil, err
-	}
+	dc.SetFontFace(faces.title)
 	dc.SetRGB(0.1, 0.1, 0.1)
 	dc.DrawStringAnchored(title, float64(width)/2, 35, 0.5, 0.5)
 
 	// Subtitle
-	if err := setFontFace(dc, &regularFace, goregular.TTF, 14); err != nil {
-		return nil, err
-	}
+	dc.SetFontFace(faces.subtitle)
 	dc.SetRGB(0.4, 0.4, 0.4)
 	dc.DrawStringAnchored("€/kWh (PVPC)", float64(width)/2, 58, 0.5, 0.5)
 
 	// Horizontal grid + Y labels
-	if err := setFontFace(dc, &regularFace, goregular.TTF, 12); err != nil {
-		return nil, err
-	}
+	dc.SetFontFace(faces.label)
 	step := 0.02
 	for v := minPrice; v <= maxPrice+1e-9; v += step {
 		y := yFor(v)
