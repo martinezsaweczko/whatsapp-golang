@@ -345,7 +345,7 @@ func (s *Service) removeCronJobLocked(id uuid.UUID) {
 
 // runJob executes a single scheduled command.
 func (s *Service) runJob(id uuid.UUID, schedule, command, groupJIDStr string) {
-	ctx, span := s.tracer.Start(context.Background(), "scheduler.runJob",
+	ctx, span := s.tracer.Start(context.Background(), "scheduler.RunJob",
 		trace.WithAttributes(
 			attribute.String("id", id.String()),
 			attribute.String("schedule", schedule),

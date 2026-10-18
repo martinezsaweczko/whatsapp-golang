@@ -85,7 +85,7 @@ func (h *FileServerHandler) RegisterRoutes(router Router, middlewares ...middlew
 //	@Router       /magazine_folder/{file} [get]
 func (h *FileServerHandler) serveFile(prefix, dir string) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, span := h.tracer.Start(r.Context(), "kiosk.ServeFile",
+		ctx, span := h.tracer.Start(r.Context(), "handler.ServeFile",
 			trace.WithAttributes(attribute.String("category", prefix)))
 		defer span.End()
 		r = r.WithContext(ctx)

@@ -327,25 +327,27 @@ func TestTracingMiddlewareNamesSpansAfterTheRoute(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux := http.NewServeMux()
 	mux.Handle("GET /items/{id}", TracingMiddleware()(ok))
+	mux.Handle("/any/{id}", TracingMiddleware()(ok))
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/items/42", nil))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want the wrapped handler's %d", rec.Code, http.StatusNoContent)
 	}
+	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/any/9", nil))
 	// Without a mux there is no pattern, so the path is used instead.
 	TracingMiddleware()(ok).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodDelete, "/direct/7", nil))
 
 	spans := recorder.Ended()
-	if len(spans) != 2 {
+	if len(spans) != 3 {
 		t.Fatalf("recorded %d spans, want one per request", len(spans))
 	}
-	// The routed span is named after the pattern, never the concrete path, so
-	// span names stay low-cardinality.
-	if got := spans[0].Name(); !strings.HasSuffix(got, "GET /items/{id}") || strings.Contains(got, "42") {
-		t.Errorf("routed span name = %q, want it to end with the route pattern", got)
-	}
-	if got, want := spans[1].Name(), "DELETE /direct/7"; got != want {
-		t.Errorf("unrouted span name = %q, want %q", got, want)
+	// Routed spans are named "{method} {route}" (OTel semconv): the method
+	// appears once even when the pattern carries it, and the route is the
+	// pattern, never the concrete path, so span names stay low-cardinality.
+	for i, want := range []string{"GET /items/{id}", "PUT /any/{id}", "DELETE /direct/7"} {
+		if got := spans[i].Name(); got != want {
+			t.Errorf("span %d name = %q, want %q", i, got, want)
+		}
 	}
 }

@@ -100,7 +100,7 @@ func (h *SubscriptionTriggerHandler) trigger(w http.ResponseWriter, r *http.Requ
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		ctx, span := h.tracer.Start(ctx, "subscription.Trigger", trace.WithAttributes(
+		ctx, span := h.tracer.Start(ctx, "handler.SubscriptionTrigger", trace.WithAttributes(
 			attribute.String("category", req.Category),
 			attribute.String("file", req.File),
 		))

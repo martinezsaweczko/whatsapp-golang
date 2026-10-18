@@ -264,7 +264,7 @@ func TestRunJobRecoversPanic(t *testing.T) {
 	// Must return normally: an unrecovered panic here would crash the process
 	svc.runJob(uuid.Must(uuid.NewV7()), "0 8 * * *", "electricidad", "123456789@g.us")
 
-	span := singleSpan(t, recorder, "scheduler.runJob")
+	span := singleSpan(t, recorder, "scheduler.RunJob")
 	if span.Status().Code != codes.Error {
 		t.Errorf("span status = %v, want %v", span.Status().Code, codes.Error)
 	}

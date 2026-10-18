@@ -12,13 +12,17 @@ import (
 )
 
 // NewExternalClient creates an HTTP client for external API calls with:
-// - otelhttp transport (trace spans + W3C propagation)
+// - otelhttp transport (trace spans named "{method} {service}" + W3C propagation)
 // - external_api_calls_total and external_api_duration_seconds metrics per service/target
 func NewExternalClient(serviceName string, timeout time.Duration, m *o11.ServiceMetrics) *http.Client {
 	return &http.Client{
 		Timeout: timeout,
 		Transport: &instrumentedTransport{
-			base:    otelhttp.NewTransport(http.DefaultTransport),
+			base: otelhttp.NewTransport(http.DefaultTransport,
+				otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+					return r.Method + " " + serviceName
+				}),
+			),
 			service: serviceName,
 			metrics: m,
 		},

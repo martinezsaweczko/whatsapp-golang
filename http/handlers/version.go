@@ -79,7 +79,7 @@ func (v *VersionHandler) getVersion(w http.ResponseWriter, r *http.Request) {
 
 	v.log.Info("Received request for version information")
 
-	_, span := v.observability.Trace.Tracer("version_handler").Start(r.Context(), "getVersionHandler")
+	_, span := v.observability.Trace.Tracer("http/handlers/version").Start(r.Context(), "handler.GetVersion")
 	defer span.End()
 
 	versionInfo := &model.VersionInfo{
