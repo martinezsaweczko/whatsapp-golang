@@ -25,7 +25,7 @@ func NewInstrumented(db *DB, metrics *o11.RepoMetrics, tp trace.TracerProvider) 
 	return &InstrumentedDB{
 		DB:      db,
 		metrics: metrics,
-		tracer:  tp.Tracer("repository/sqlite"),
+		tracer:  tp.Tracer("repository"),
 	}
 }
 

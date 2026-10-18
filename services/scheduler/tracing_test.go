@@ -172,7 +172,7 @@ func TestRunJobMarksOutcomeOnSpan(t *testing.T) {
 
 			svc.runJob(uuid.Must(uuid.NewV7()), "0 8 * * *", tt.command, tt.groupJID)
 
-			span := singleSpan(t, recorder, "scheduler.runJob")
+			span := singleSpan(t, recorder, "scheduler.RunJob")
 			if got := span.Status().Code; got != tt.wantStatus {
 				t.Errorf("span status = %v, want %v", got, tt.wantStatus)
 			}

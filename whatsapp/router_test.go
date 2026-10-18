@@ -500,7 +500,7 @@ func TestExecuteCommandTracing(t *testing.T) {
 
 			chat := types.NewJID("123456789", types.GroupServer)
 			senderJID := types.NewJID("bot", types.DefaultUserServer)
-			parentCtx, parent := tp.Tracer("test").Start(context.Background(), "scheduler.runJob")
+			parentCtx, parent := tp.Tracer("test").Start(context.Background(), "scheduler.RunJob")
 			err = router.ExecuteCommand(parentCtx, "electricidad", chat, senderJID)
 			parent.End()
 

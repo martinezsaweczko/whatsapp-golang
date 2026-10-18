@@ -94,7 +94,7 @@ func (s *Service) Handler() whatsapp.ChannelMediaHandler {
 }
 
 func (s *Service) handle(ctx context.Context, sender whatsapp.Sender, msg whatsapp.IncomingMessage) error {
-	ctx, span := s.tracer.Start(ctx, "channelpdf.handle", trace.WithAttributes(
+	ctx, span := s.tracer.Start(ctx, "channelpdf.Handle", trace.WithAttributes(
 		attribute.String("chat", msg.Chat.String()),
 		attribute.String("filename", msg.DocumentFileName),
 		attribute.String("category", s.category),
