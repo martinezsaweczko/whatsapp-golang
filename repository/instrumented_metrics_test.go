@@ -192,8 +192,8 @@ func TestInstrumentedSubscriptionsTokensAndUsage(t *testing.T) {
 		t.Errorf("recorded %d spans, want 14 (one per repository call)", len(spans))
 	}
 	for _, span := range spans {
-		if !strings.HasPrefix(span.Name(), "repo.") {
-			t.Errorf("span name %q should start with repo.", span.Name())
+		if !strings.HasPrefix(span.Name(), "repository.") {
+			t.Errorf("span name %q should start with repository.", span.Name())
 		}
 		if span.Status().Code == codes.Error {
 			t.Errorf("span %q is marked as failed", span.Name())
@@ -268,8 +268,8 @@ func TestInstrumentedRecordsFailures(t *testing.T) {
 				t.Fatalf("recorded %d spans, want 1", len(spans))
 			}
 			span := spans[0]
-			if span.Name() != "repo."+tt.operation {
-				t.Errorf("span name = %q, want repo.%s", span.Name(), tt.operation)
+			if span.Name() != "repository."+tt.operation {
+				t.Errorf("span name = %q, want repository.%s", span.Name(), tt.operation)
 			}
 			if span.Status().Code != codes.Error || span.Status().Description != err.Error() {
 				t.Errorf("span status = %+v, want an error carrying %q", span.Status(), err)

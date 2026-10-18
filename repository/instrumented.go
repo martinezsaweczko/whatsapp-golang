@@ -47,7 +47,7 @@ func (i *InstrumentedDB) record(ctx context.Context, operation string, start tim
 // wrap executes op with span + metrics
 func (i *InstrumentedDB) wrap(ctx context.Context, operation string, op func(ctx context.Context) error) error {
 	start := time.Now()
-	ctx, span := i.tracer.Start(ctx, "repo."+operation)
+	ctx, span := i.tracer.Start(ctx, "repository."+operation)
 	defer span.End()
 
 	err := op(ctx)
