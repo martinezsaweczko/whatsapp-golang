@@ -123,7 +123,7 @@ func (app *App) initAndWire() error {
 	aiSvc, err := ai.New(
 		cfg.Bot.OpenAIAPIKey, cfg.Bot.OpenAIModel, cfg.Bot.OpenAIBaseURL,
 		services.NewExternalClient("openai", 60*time.Second, serviceMetrics),
-		cfg.Bot.TrollNumbers, log, tp, mp,
+		cfg.Bot.TrollNumbers, repo, cfg.Bot.AIHistoryMaxTurns, log, tp, mp,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create ai service: %w", err)

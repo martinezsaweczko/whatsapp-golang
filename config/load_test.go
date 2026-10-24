@@ -56,7 +56,7 @@ func TestLoadConfig(t *testing.T) {
 		if cfg.Bot.DBDriver != "sqlite" || cfg.Bot.DatabaseDSN() != "file:/tmp/db.sqlite?_foreign_keys=on" {
 			t.Errorf("default database = %s %s", cfg.Bot.DBDriver, cfg.Bot.DatabaseDSN())
 		}
-		if cfg.Bot.CommandTimeout != 60 || cfg.Bot.SchedulerTimezone != "Europe/Madrid" || !cfg.Bot.SchedulerEnabled {
+		if cfg.Bot.CommandTimeout != 60 || cfg.Bot.AIHistoryMaxTurns != 20 || cfg.Bot.OpenAIBaseURL != "" || cfg.Bot.SchedulerTimezone != "Europe/Madrid" || !cfg.Bot.SchedulerEnabled {
 			t.Errorf("unexpected bot defaults: %+v", cfg.Bot)
 		}
 		if cfg.Bot.TrollNumbers != nil {

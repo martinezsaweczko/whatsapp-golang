@@ -72,6 +72,7 @@ func LoadConfig() (*Config, *ConfigError) {
 	var urlServer, dbPath, dbDSN, dbDriver, sessionDBPath string
 	var dbAutoCreate bool
 	var openAIAPIKey, openAIModel, openAIBaseURL string
+	var aiHistoryMaxTurns int
 	var weatherAPIKey, weatherAPIURL, weatherForecastAPIURL string
 	var weatherNoteWords int
 	var quoteAPIKey, quoteAPIURL string
@@ -126,6 +127,7 @@ func LoadConfig() (*Config, *ConfigError) {
 	flag.StringVar(&openAIAPIKey, "openai-api-key", "", "OpenAI API key")
 	flag.StringVar(&openAIModel, "openai-model", "gpt-4o-mini", "OpenAI model")
 	flag.StringVar(&openAIBaseURL, "openai-base-url", "", "Base URL of an OpenAI-compatible API (empty = OpenAI default)")
+	flag.IntVar(&aiHistoryMaxTurns, "ai-history-max-turns", 20, "Max previous question/answer turns sent to the AI as same-day context")
 	flag.StringVar(&weatherAPIKey, "weather-api-key", "", "OpenWeatherMap API key")
 	flag.StringVar(&weatherAPIURL, "weather-api-url", "https://api.openweathermap.org/data/2.5/weather", "OpenWeatherMap API URL")
 	flag.StringVar(&weatherForecastAPIURL, "weather-forecast-api-url", "https://api.openweathermap.org/data/2.5/forecast", "OpenWeatherMap 5 day / 3 hour forecast API URL")
@@ -217,6 +219,7 @@ func LoadConfig() (*Config, *ConfigError) {
 		OpenAIAPIKey:           openAIAPIKey,
 		OpenAIModel:            openAIModel,
 		OpenAIBaseURL:          openAIBaseURL,
+		AIHistoryMaxTurns:      aiHistoryMaxTurns,
 		WeatherAPIKey:          weatherAPIKey,
 		WeatherAPIURL:          weatherAPIURL,
 		WeatherForecastAPIURL:  weatherForecastAPIURL,
