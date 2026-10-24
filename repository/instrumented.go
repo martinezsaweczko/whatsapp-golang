@@ -163,3 +163,24 @@ func (i *InstrumentedDB) DeleteScheduledCommand(ctx context.Context, id uuid.UUI
 		return i.DB.DeleteScheduledCommand(ctx, id)
 	})
 }
+
+func (i *InstrumentedDB) SaveAIMessage(ctx context.Context, msg model.AIMessage) error {
+	return i.wrap(ctx, "ai_messages.insert", func(ctx context.Context) error {
+		return i.DB.SaveAIMessage(ctx, msg)
+	})
+}
+
+func (i *InstrumentedDB) ListAIMessages(ctx context.Context, chat, sender string, since time.Time, limit int) (msgs []model.AIMessage, err error) {
+	err = i.wrap(ctx, "ai_messages.select", func(ctx context.Context) error {
+		var err error
+		msgs, err = i.DB.ListAIMessages(ctx, chat, sender, since, limit)
+		return err
+	})
+	return msgs, err
+}
+
+func (i *InstrumentedDB) PurgeAIMessages(ctx context.Context, before time.Time) error {
+	return i.wrap(ctx, "ai_messages.purge", func(ctx context.Context) error {
+		return i.DB.PurgeAIMessages(ctx, before)
+	})
+}

@@ -5,8 +5,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/martinezsaweczko/whatsappBot-golang/model"
 	"github.com/martinezsaweczko/whatsappBot-golang/o11"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -237,6 +239,17 @@ func TestInstrumentedRecordsFailures(t *testing.T) {
 		{"jwt_used.clean", func(db *InstrumentedDB) error { return db.CleanJWT(ctx) }},
 		{"file_usage.insert", func(db *InstrumentedDB) error { return db.ReportFileUsage(ctx, "a.pdf", 404) }},
 		{"user_usage.insert", func(db *InstrumentedDB) error { return db.ReportUserUsage(ctx, "David", "a.pdf") }},
+		{"ai_messages.insert", func(db *InstrumentedDB) error {
+			return db.SaveAIMessage(ctx, model.AIMessage{ChatJID: "c", SenderJID: "s", Role: model.AIRoleUser, Content: "hi"})
+		}},
+		{"ai_messages.select", func(db *InstrumentedDB) error {
+			msgs, err := db.ListAIMessages(ctx, "c", "s", time.Time{}, 10)
+			if msgs != nil {
+				t.Errorf("ListAIMessages returned %v alongside an error", msgs)
+			}
+			return err
+		}},
+		{"ai_messages.purge", func(db *InstrumentedDB) error { return db.PurgeAIMessages(ctx, time.Now()) }},
 	}
 
 	for _, tt := range tests {
