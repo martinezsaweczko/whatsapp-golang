@@ -17,16 +17,6 @@ import (
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 )
 
-type fakeTTS struct {
-	lastText string
-	audio    []byte
-}
-
-func (f *fakeTTS) Synthesize(_ context.Context, text string) ([]byte, error) {
-	f.lastText = text
-	return f.audio, nil
-}
-
 type fakeSender struct {
 	replies  []string
 	mediaOut [][]byte
@@ -72,10 +62,10 @@ func fakeOpenAI(t *testing.T, prompts *[]string, responses []string) *httptest.S
 	}))
 }
 
-func newTestService(t *testing.T, server *httptest.Server, trolls []string, ttsSvc TTS) *Service {
+func newTestService(t *testing.T, server *httptest.Server, trolls []string) *Service {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	svc, err := New("test-key", "test-model", "", server.Client(), trolls, ttsSvc, log,
+	svc, err := New("test-key", "test-model", "", server.Client(), trolls, log,
 		tracenoop.NewTracerProvider(), noop.NewMeterProvider())
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
@@ -90,10 +80,10 @@ func newTestService(t *testing.T, server *httptest.Server, trolls []string, ttsS
 
 func TestFallbackTextReply(t *testing.T) {
 	var prompts []string
-	server := fakeOpenAI(t, &prompts, []string{"texto", "respuesta de prueba"})
+	server := fakeOpenAI(t, &prompts, []string{"respuesta de prueba"})
 	defer server.Close()
 
-	svc := newTestService(t, server, nil, &fakeTTS{audio: []byte("mp3")})
+	svc := newTestService(t, server, nil)
 	sender := &fakeSender{}
 
 	msg := whatsapp.IncomingMessage{
@@ -110,19 +100,18 @@ func TestFallbackTextReply(t *testing.T) {
 	if len(sender.replies) != 1 || sender.replies[0] != "respuesta de prueba" {
 		t.Errorf("unexpected replies: %+v", sender.replies)
 	}
-	// First prompt is the audio/text classification
-	if !strings.Contains(prompts[0], "audio o texto") {
-		t.Errorf("missing classification prompt: %s", prompts[0])
+	if len(prompts) != 1 {
+		t.Errorf("expected a single completion call, got %d", len(prompts))
 	}
 }
 
 func TestFallbackTrollPrompt(t *testing.T) {
 	var prompts []string
-	server := fakeOpenAI(t, &prompts, []string{"texto", "respuesta troll"})
+	server := fakeOpenAI(t, &prompts, []string{"respuesta troll"})
 	defer server.Close()
 
 	trollJID := types.NewJID("34645568517", types.DefaultUserServer).String()
-	svc := newTestService(t, server, []string{trollJID}, &fakeTTS{audio: []byte("mp3")})
+	svc := newTestService(t, server, []string{trollJID})
 	sender := &fakeSender{}
 
 	msg := whatsapp.IncomingMessage{
@@ -136,37 +125,8 @@ func TestFallbackTrollPrompt(t *testing.T) {
 		t.Fatalf("handler failed: %v", err)
 	}
 
-	// Second prompt (the actual completion) must contain the troll prefix
-	if len(prompts) < 2 || !strings.Contains(prompts[1], "Eres un bufon") {
+	if len(prompts) != 1 || !strings.Contains(prompts[0], "Eres un bufon") {
 		t.Errorf("troll prompt not applied: %+v", prompts)
-	}
-}
-
-func TestFallbackAudioReply(t *testing.T) {
-	var prompts []string
-	server := fakeOpenAI(t, &prompts, []string{"audio", "respuesta hablada"})
-	defer server.Close()
-
-	ttsSvc := &fakeTTS{audio: []byte("fake-mp3")}
-	svc := newTestService(t, server, nil, ttsSvc)
-	sender := &fakeSender{}
-
-	msg := whatsapp.IncomingMessage{
-		Body:   "@bot respóndeme con un audio",
-		Sender: types.NewJID("34645568517", types.DefaultUserServer),
-		Chat:   types.NewJID("34645568517", types.DefaultUserServer),
-	}
-
-	handler := svc.Fallback()
-	if err := handler(context.Background(), sender, msg); err != nil {
-		t.Fatalf("handler failed: %v", err)
-	}
-
-	if len(sender.mediaOut) != 1 || string(sender.mediaOut[0]) != "fake-mp3" {
-		t.Errorf("expected audio reply, got %+v", sender.mediaOut)
-	}
-	if ttsSvc.lastText != "respuesta hablada" {
-		t.Errorf("TTS received wrong text: %s", ttsSvc.lastText)
 	}
 }
 
@@ -182,7 +142,7 @@ func TestNewHonorsBaseURL(t *testing.T) {
 	defer server.Close()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	svc, err := New("k", "m", server.URL+"/v1", server.Client(), nil, nil, log,
+	svc, err := New("k", "m", server.URL+"/v1", server.Client(), nil, log,
 		tracenoop.NewTracerProvider(), noop.NewMeterProvider())
 	if err != nil {
 		t.Fatalf("New failed: %v", err)

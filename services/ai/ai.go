@@ -1,5 +1,5 @@
 // Package ai implements the OpenAI fallback: messages that mention the bot
-// and match no command are answered by an LLM (text or TTS audio).
+// and match no command are answered by an LLM as text.
 package ai
 
 import (
@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"regexp"
-	"strings"
 
 	"github.com/martinezsaweczko/whatsappBot-golang/o11"
 	"github.com/martinezsaweczko/whatsappBot-golang/whatsapp"
@@ -22,25 +20,19 @@ import (
 // trollPrompt is prepended to questions from troll-listed users
 const trollPrompt = "Eres un bufon, responde lo que te preguntan pero intenta ser gracioso y troll, no des nunca una respuesta seria. Por favor no indiques que la respuesta forma parte de una broma, haz que no se note. Siempre intenta reirte de quien te pregunta."
 
-// TTS synthesizes speech (consumer-defined interface)
-type TTS interface {
-	Synthesize(ctx context.Context, text string) ([]byte, error)
-}
-
 // Service provides AI completions
 type Service struct {
 	client       *openai.Client
 	model        string
 	trollJIDs    map[string]bool
-	tts          TTS
 	log          *slog.Logger
 	tracer       trace.Tracer
 	repliesTotal metric.Int64Counter
 }
 
 // New creates the AI service. httpClient is the instrumented external client.
-func New(apiKey, model, baseURL string, httpClient *http.Client, trollJIDs []string, tts TTS, log *slog.Logger, tp trace.TracerProvider, mp metric.MeterProvider) (*Service, error) {
-	repliesTotal, err := o11.NewBusinessCounter(mp, "ai_replies_total", "AI replies per mode (text, audio)")
+func New(apiKey, model, baseURL string, httpClient *http.Client, trollJIDs []string, log *slog.Logger, tp trace.TracerProvider, mp metric.MeterProvider) (*Service, error) {
+	repliesTotal, err := o11.NewBusinessCounter(mp, "ai_replies_total", "AI replies per mode (text)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ai counter: %w", err)
 	}
@@ -60,7 +52,6 @@ func New(apiKey, model, baseURL string, httpClient *http.Client, trollJIDs []str
 		client:       openai.NewClientWithConfig(cfg),
 		model:        model,
 		trollJIDs:    trolls,
-		tts:          tts,
 		log:          log,
 		tracer:       tp.Tracer("services/ai"),
 		repliesTotal: repliesTotal,
@@ -94,24 +85,10 @@ func (s *Service) Complete(ctx context.Context, prompt string) (string, error) {
 	return resp.Choices[0].Message.Content, nil
 }
 
-// audioAnswer matches GPT's classification answer ("audio" / "texto")
-var audioAnswer = regexp.MustCompile(`^(?i)audio`)
-
 // Fallback returns the handler for unmatched messages that mention the bot
 func (s *Service) Fallback() whatsapp.CommandHandler {
 	return func(ctx context.Context, sender whatsapp.Sender, msg whatsapp.IncomingMessage) error {
 		s.log.Info("Processing AI fallback", "user", msg.PushName, "chat", msg.Chat.String())
-
-		classification, err := s.Complete(ctx,
-			"Responde con unica palabra, audio o texto, si la siguiente frase se refiere a un audio o a un texto: \""+msg.Body+"\"")
-		if err != nil {
-			classification = "texto"
-			s.log.Warn("Audio/text classification failed, defaulting to text", "error", err)
-		}
-
-		if audioAnswer.MatchString(strings.TrimSpace(classification)) {
-			return s.replyAudio(ctx, sender, msg)
-		}
 		return s.replyText(ctx, sender, msg)
 	}
 }
@@ -130,22 +107,6 @@ func (s *Service) replyText(ctx context.Context, sender whatsapp.Sender, msg wha
 
 	s.repliesTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("mode", "text")))
 	return sender.ReplyText(ctx, msg, reply)
-}
-
-// replyAudio answers with a TTS audio of the completion
-func (s *Service) replyAudio(ctx context.Context, sender whatsapp.Sender, msg whatsapp.IncomingMessage) error {
-	reply, err := s.Complete(ctx, msg.Body)
-	if err != nil {
-		return sender.ReplyText(ctx, msg, "Ahora mismo no puedo responder, inténtalo más tarde")
-	}
-
-	audio, err := s.tts.Synthesize(ctx, reply)
-	if err != nil {
-		return sender.ReplyText(ctx, msg, "No he podido generar el audio de respuesta")
-	}
-
-	s.repliesTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("mode", "audio")))
-	return sender.ReplyMedia(ctx, msg, audio, "audio/mpeg", "audio.mp3")
 }
 
 // isTroll reports whether the message author (or the group) is troll-listed
