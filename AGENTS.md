@@ -4,7 +4,7 @@ Guidance for coding agents working on this repository.
 
 ## What this is
 
-Go port of the whatsappBot-node app: a WhatsApp bot (newspaper kiosk with JWT-protected downloads, subscriptions, weather, TTS, AI image/text, electricity price charts) using **whatsmeow** (`go.mau.fi/whatsmeow`). Based on the go-api-template (stdlib `net/http`, flag config, hand-wired DI, OTel observability).
+Go port of the whatsappBot-node app: a WhatsApp bot (newspaper kiosk with JWT-protected downloads, subscriptions, weather, TTS, AI image/text with same-day per-sender history, electricity price charts) using **whatsmeow** (`go.mau.fi/whatsmeow`). Based on the go-api-template (stdlib `net/http`, flag config, hand-wired DI, OTel observability).
 
 ## Build, test, verify
 
@@ -26,7 +26,7 @@ Before committing, ALL of: `go build ./...`, `go vet ./...`, `gofmt -l .` empty,
 - **DI**: config struct + `NewXxx(cfg)` constructors; all wiring centralized in `app/handlers.go` (`initAndWire`). No DI frameworks, no global singletons (template's `services.JWTService` aside).
 - **WhatsApp commands**: registered as `whatsapp.Command{Name, Pattern, Handler}` in each service's `Commands()` method; first regex match wins; the AI fallback runs only on bot mention. Handlers must respect `ctx` cancellation (they run in goroutines with timeout + recover). Scheduled commands reuse the same handlers via `Router.ExecuteCommand` using a synthetic `IncomingMessage`; `Client.ReplyText`/`ReplyMedia` fall back to plain sends for synthetic messages.
 - **Config**: CLI flags only (no env files), each section validates itself, errors aggregated in `ConfigError`. Add new flags in `config/config.go`, validation in the section's file.
-- **SQL**: parameterized queries only, in `repository/`. Schema compatible with the Node app's `db.sqlite` (tables: `subscriptions`, `jwt_used`, `file_usage`, `user_usage`).
+- **SQL**: parameterized queries only, in `repository/`. Schema compatible with the Node app's `db.sqlite` (tables: `subscriptions`, `jwt_used`, `file_usage`, `user_usage`); Go-only tables (`scheduled_commands`, `ai_messages`) were added later.
 - **Database drivers**: SQLite (`modernc.org/sqlite`, driver name `sqlite`) and MySQL (`github.com/go-sql-driver/mysql`, driver name `mysql`) are supported. Migrations are managed with `goose` and embedded in the binary. The WhatsApp session store (`-session-db-path`) must remain SQLite because whatsmeow's `sqlstore` does not support MySQL.
 - **SQLite driver**: `modernc.org/sqlite` (pure Go, driver name `sqlite`) — do NOT add CGO drivers; the container builds with `CGO_ENABLED=0`.
 

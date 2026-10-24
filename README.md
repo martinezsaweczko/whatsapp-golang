@@ -17,7 +17,7 @@ WhatsApp bot written in Go (port of the [whatsappBot-node](../whatsappBot-node) 
 - **TTS**: `audio: text` — replies with a Spanish voice note and deletes your command message
 - **Image generation**: `imagen: prompt` — Stability AI
 - **Electricity prices**: `electricidad` — PVPC chart from ESIOS (REE), with per-day cache and tomorrow's data after 19:00 Madrid time
-- **AI fallback**: mention the bot in a group and GPT answers (text or voice); troll-listed users get trolled
+- **AI fallback**: mention the bot in a group and the AI answers with text, keeping that day's conversation per user and chat; troll-listed users get trolled
 - **Observability**: Prometheus metrics on all layers (HTTP, commands, repository, external APIs) + OTLP traces (Tempo) + `trace_id`-correlated logs
 
 ## Architecture
@@ -117,6 +117,8 @@ First login shows a QR code in the terminal (or use `-bot-pair-phone 34XXXXXXXXX
 | `-http-port` / `-internal-port` | `46564 / 9000` | Server ports |
 | `-db-path` / `-session-db-path` | `/tmp/db.sqlite`, `/tmp/session.db` | SQLite paths |
 | `-openai-api-key` / `-openai-model` | / `gpt-4o-mini` | OpenAI |
+| `-openai-base-url` | | Base URL of an OpenAI-compatible API (empty = OpenAI) |
+| `-ai-history-max-turns` | `20` | Previous question/answer turns sent to the AI as same-day context |
 | `-weather-api-key` | | OpenWeatherMap |
 | `-quote-api-key` | | API Ninjas (quote command) |
 | `-stability-api-key` | | Stability AI |

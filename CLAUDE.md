@@ -77,7 +77,7 @@ The scheduler (`services/scheduler`, robfig/cron, 5-field expressions, only when
 ### Persistence
 
 - `repository.DB` holds the queries; `repository.InstrumentedDB` embeds it and adds spans and metrics. A new repository method is only instrumented if a wrapper is added in `instrumented.go`; otherwise the embedded method is promoted silently.
-- Tables: `subscriptions`, `jwt_used`, `file_usage`, `user_usage`, `scheduled_commands`.
+- Tables: `subscriptions`, `jwt_used`, `file_usage`, `user_usage`, `scheduled_commands`, `ai_messages` (AI fallback history; `created_at` is Unix milliseconds).
 - Primary keys are UUID v7, stored as TEXT on SQLite and BINARY(16) on MySQL; go through `uuidValue` / `scanUUID`. Dialect-specific SQL branches on `DB.dialect`.
 - SQLite runs with a single open connection.
 
@@ -87,6 +87,7 @@ The scheduler (`services/scheduler`, robfig/cron, 5-field expressions, only when
 - **kiosk**: usage statistics are keyed by the sender's push name, not their JID.
 - **subscription**: a subscription matches when its text is a case-insensitive substring of the new file name.
 - **channelpdf**: saves any document from the configured channel (no MIME check); an already existing file skips both the save and the notification.
+- **ai**: the fallback always replies text (the audio/TTS reply path was removed). Each mention sends a system prompt (troll persona for troll-listed senders), the same-day (00:00 Europe/Madrid) history of the same sender in the same chat capped by `-ai-history-max-turns` turns, and the new message. The exchange is stored in `ai_messages` only after a successful completion; history load/save/purge failures are logged and never block the reply. Rows older than 7 days are purged lazily, at most once per 24h, after a fallback reply. `Complete` (weather/quote) stays history-free. `-openai-base-url` points the client at an OpenAI-compatible server.
 - **tts**: uses the unofficial Google Translate TTS endpoint, Spanish only.
 
 ## Where AGENTS.md is out of date
