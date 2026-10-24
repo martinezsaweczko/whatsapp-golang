@@ -310,3 +310,55 @@ func TestCompleteStaysHistoryFree(t *testing.T) {
 		t.Errorf("unexpected messages: %+v", msgs)
 	}
 }
+
+func TestFallbackPurgesOncePer24h(t *testing.T) {
+	server := newFakeOpenAI(t, "ok")
+	store := &fakeHistory{}
+	svc := newTestService(t, server, nil, store)
+	now := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	handler := svc.Fallback()
+
+	run := func() {
+		t.Helper()
+		if err := handler(context.Background(), &fakeSender{}, mention("hola")); err != nil {
+			t.Fatalf("handler failed: %v", err)
+		}
+	}
+
+	run()
+	now = now.Add(time.Hour)
+	run()
+	if len(store.purges) != 1 {
+		t.Fatalf("purges = %d within 24h, want 1", len(store.purges))
+	}
+	if want := time.Date(2026, 6, 24, 10, 0, 0, 0, time.UTC); !store.purges[0].Equal(want) {
+		t.Errorf("purge cutoff = %v, want %v (7 days back)", store.purges[0], want)
+	}
+
+	now = now.Add(24 * time.Hour)
+	run()
+	if len(store.purges) != 2 {
+		t.Errorf("purges = %d after 24h, want 2", len(store.purges))
+	}
+}
+
+func TestFallbackPurgeFailureIsHarmlessAndRetried(t *testing.T) {
+	server := newFakeOpenAI(t, "ok")
+	store := &fakeHistory{purgeErr: errors.New("db down")}
+	svc := newTestService(t, server, nil, store)
+	sender := &fakeSender{}
+
+	for i := 0; i < 2; i++ {
+		if err := svc.Fallback()(context.Background(), sender, mention("hola")); err != nil {
+			t.Fatalf("handler failed: %v", err)
+		}
+	}
+
+	if len(sender.replies) != 2 {
+		t.Errorf("replies = %d, want 2 despite purge failures", len(sender.replies))
+	}
+	if len(store.purges) != 2 {
+		t.Errorf("failed purge must be retried on the next fallback, purges = %d", len(store.purges))
+	}
+}

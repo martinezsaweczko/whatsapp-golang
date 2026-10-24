@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
@@ -24,13 +25,16 @@ const trollPrompt = "Eres un bufon, responde lo que te preguntan pero intenta se
 
 // Service provides AI completions
 type Service struct {
-	client       *openai.Client
-	model        string
-	trollJIDs    map[string]bool
-	history      HistoryStore
-	maxTurns     int
-	loc          *time.Location
-	now          func() time.Time
+	client    *openai.Client
+	model     string
+	trollJIDs map[string]bool
+	history   HistoryStore
+	maxTurns  int
+	loc       *time.Location
+	now       func() time.Time
+
+	purgeMu      sync.Mutex
+	lastPurge    time.Time
 	log          *slog.Logger
 	tracer       trace.Tracer
 	repliesTotal metric.Int64Counter
@@ -105,7 +109,32 @@ func (s *Service) Complete(ctx context.Context, prompt string) (string, error) {
 func (s *Service) Fallback() whatsapp.CommandHandler {
 	return func(ctx context.Context, sender whatsapp.Sender, msg whatsapp.IncomingMessage) error {
 		s.log.Info("Processing AI fallback", "user", msg.PushName, "chat", msg.Chat.String())
+		// Purge after the reply has been sent so it never delays the answer
+		defer s.maybePurge(ctx)
 		return s.replyText(ctx, sender, msg)
+	}
+}
+
+// maybePurge deletes history older than the retention window, at most once
+// per purgeInterval. Failures are logged and retried on the next fallback.
+func (s *Service) maybePurge(ctx context.Context) {
+	if s.history == nil {
+		return
+	}
+	now := s.now()
+	s.purgeMu.Lock()
+	if !s.lastPurge.IsZero() && now.Sub(s.lastPurge) < purgeInterval {
+		s.purgeMu.Unlock()
+		return
+	}
+	s.lastPurge = now
+	s.purgeMu.Unlock()
+
+	if err := s.history.PurgeAIMessages(ctx, now.Add(-historyRetention)); err != nil {
+		s.log.Warn("Cannot purge AI history", "error", err)
+		s.purgeMu.Lock()
+		s.lastPurge = time.Time{}
+		s.purgeMu.Unlock()
 	}
 }
 
