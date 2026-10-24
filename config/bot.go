@@ -37,6 +37,7 @@ type BotConfig struct {
 	// External APIs
 	OpenAIAPIKey          string
 	OpenAIModel           string
+	OpenAIBaseURL         string // OpenAI-compatible API base URL; empty = OpenAI default
 	WeatherAPIKey         string
 	WeatherAPIURL         string
 	WeatherForecastAPIURL string

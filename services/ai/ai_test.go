@@ -75,7 +75,7 @@ func fakeOpenAI(t *testing.T, prompts *[]string, responses []string) *httptest.S
 func newTestService(t *testing.T, server *httptest.Server, trolls []string, ttsSvc TTS) *Service {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	svc, err := New("test-key", "test-model", server.Client(), trolls, ttsSvc, log,
+	svc, err := New("test-key", "test-model", "", server.Client(), trolls, ttsSvc, log,
 		tracenoop.NewTracerProvider(), noop.NewMeterProvider())
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
@@ -167,5 +167,30 @@ func TestFallbackAudioReply(t *testing.T) {
 	}
 	if ttsSvc.lastText != "respuesta hablada" {
 		t.Errorf("TTS received wrong text: %s", ttsSvc.lastText)
+	}
+}
+
+func TestNewHonorsBaseURL(t *testing.T) {
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{{"message": map[string]string{"role": "assistant", "content": "ok"}}},
+		})
+	}))
+	defer server.Close()
+
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	svc, err := New("k", "m", server.URL+"/v1", server.Client(), nil, nil, log,
+		tracenoop.NewTracerProvider(), noop.NewMeterProvider())
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	if got, err := svc.Complete(context.Background(), "hola"); err != nil || got != "ok" {
+		t.Fatalf("Complete = %q, %v", got, err)
+	}
+	if len(paths) != 1 || paths[0] != "/v1/chat/completions" {
+		t.Errorf("unexpected request paths: %v", paths)
 	}
 }

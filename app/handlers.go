@@ -121,7 +121,7 @@ func (app *App) initAndWire() error {
 	}
 
 	aiSvc, err := ai.New(
-		cfg.Bot.OpenAIAPIKey, cfg.Bot.OpenAIModel,
+		cfg.Bot.OpenAIAPIKey, cfg.Bot.OpenAIModel, cfg.Bot.OpenAIBaseURL,
 		services.NewExternalClient("openai", 60*time.Second, serviceMetrics),
 		cfg.Bot.TrollNumbers, ttsSvc, log, tp, mp,
 	)

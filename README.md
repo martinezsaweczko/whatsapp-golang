@@ -117,6 +117,7 @@ First login shows a QR code in the terminal (or use `-bot-pair-phone 34XXXXXXXXX
 | `-http-port` / `-internal-port` | `46564 / 9000` | Server ports |
 | `-db-path` / `-session-db-path` | `/tmp/db.sqlite`, `/tmp/session.db` | SQLite paths |
 | `-openai-api-key` / `-openai-model` | / `gpt-4o-mini` | OpenAI |
+| `-openai-base-url` | | Base URL of an OpenAI-compatible API (empty = OpenAI) |
 | `-weather-api-key` | | OpenWeatherMap |
 | `-quote-api-key` | | API Ninjas (quote command) |
 | `-stability-api-key` | | Stability AI |

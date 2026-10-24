@@ -39,13 +39,16 @@ type Service struct {
 }
 
 // New creates the AI service. httpClient is the instrumented external client.
-func New(apiKey, model string, httpClient *http.Client, trollJIDs []string, tts TTS, log *slog.Logger, tp trace.TracerProvider, mp metric.MeterProvider) (*Service, error) {
+func New(apiKey, model, baseURL string, httpClient *http.Client, trollJIDs []string, tts TTS, log *slog.Logger, tp trace.TracerProvider, mp metric.MeterProvider) (*Service, error) {
 	repliesTotal, err := o11.NewBusinessCounter(mp, "ai_replies_total", "AI replies per mode (text, audio)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ai counter: %w", err)
 	}
 
 	cfg := openai.DefaultConfig(apiKey)
+	if baseURL != "" {
+		cfg.BaseURL = baseURL
+	}
 	cfg.HTTPClient = httpClient
 
 	trolls := make(map[string]bool, len(trollJIDs))

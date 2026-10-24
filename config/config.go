@@ -71,7 +71,7 @@ func LoadConfig() (*Config, *ConfigError) {
 	var retentionNacional, retentionInternacional, retentionMagazine int
 	var urlServer, dbPath, dbDSN, dbDriver, sessionDBPath string
 	var dbAutoCreate bool
-	var openAIAPIKey, openAIModel string
+	var openAIAPIKey, openAIModel, openAIBaseURL string
 	var weatherAPIKey, weatherAPIURL, weatherForecastAPIURL string
 	var weatherNoteWords int
 	var quoteAPIKey, quoteAPIURL string
@@ -125,6 +125,7 @@ func LoadConfig() (*Config, *ConfigError) {
 	flag.StringVar(&sessionDBPath, "session-db-path", "/tmp/session.db", "WhatsApp session database path")
 	flag.StringVar(&openAIAPIKey, "openai-api-key", "", "OpenAI API key")
 	flag.StringVar(&openAIModel, "openai-model", "gpt-4o-mini", "OpenAI model")
+	flag.StringVar(&openAIBaseURL, "openai-base-url", "", "Base URL of an OpenAI-compatible API (empty = OpenAI default)")
 	flag.StringVar(&weatherAPIKey, "weather-api-key", "", "OpenWeatherMap API key")
 	flag.StringVar(&weatherAPIURL, "weather-api-url", "https://api.openweathermap.org/data/2.5/weather", "OpenWeatherMap API URL")
 	flag.StringVar(&weatherForecastAPIURL, "weather-forecast-api-url", "https://api.openweathermap.org/data/2.5/forecast", "OpenWeatherMap 5 day / 3 hour forecast API URL")
@@ -215,6 +216,7 @@ func LoadConfig() (*Config, *ConfigError) {
 		SessionDBPath:          sessionDBPath,
 		OpenAIAPIKey:           openAIAPIKey,
 		OpenAIModel:            openAIModel,
+		OpenAIBaseURL:          openAIBaseURL,
 		WeatherAPIKey:          weatherAPIKey,
 		WeatherAPIURL:          weatherAPIURL,
 		WeatherForecastAPIURL:  weatherForecastAPIURL,
