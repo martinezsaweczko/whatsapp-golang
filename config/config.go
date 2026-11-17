@@ -82,6 +82,9 @@ func LoadConfig() (*Config, *ConfigError) {
 	var pdfChannelJID, pdfCategory string
 	var schedulerTimezone string
 	var schedulerEnabled bool
+	var kioskCleanupEnabled bool
+	var kioskCleanupMaxAge int
+	var kioskCleanupSchedule string
 
 	// Flags public file server
 	flag.StringVar(&serverAddress, "http-address", "0.0.0.0", "Public file server address")
@@ -143,6 +146,9 @@ func LoadConfig() (*Config, *ConfigError) {
 	flag.StringVar(&pdfCategory, "pdf-category", "nacional", "Kiosk category where downloaded PDFs are saved")
 	flag.StringVar(&schedulerTimezone, "scheduler-timezone", "Europe/Madrid", "Timezone used for scheduled command cron expressions")
 	flag.BoolVar(&schedulerEnabled, "scheduler-enabled", true, "Enable the scheduled command runner")
+	flag.BoolVar(&kioskCleanupEnabled, "kiosk-cleanup-enabled", true, "Delete kiosk files older than -kiosk-cleanup-max-age at startup and on -kiosk-cleanup-schedule")
+	flag.IntVar(&kioskCleanupMaxAge, "kiosk-cleanup-max-age", 720, "Age in hours past which kiosk files are deleted (must be >= every retention)")
+	flag.StringVar(&kioskCleanupSchedule, "kiosk-cleanup-schedule", "0 4 * * *", "Cron expression (5 fields, -scheduler-timezone) of the kiosk cleanup")
 
 	flag.Parse()
 
@@ -235,6 +241,9 @@ func LoadConfig() (*Config, *ConfigError) {
 		PDFCategory:            pdfCategory,
 		SchedulerTimezone:      schedulerTimezone,
 		SchedulerEnabled:       schedulerEnabled,
+		KioskCleanupEnabled:    kioskCleanupEnabled,
+		KioskCleanupMaxAge:     kioskCleanupMaxAge,
+		KioskCleanupSchedule:   kioskCleanupSchedule,
 	}
 
 	if err := config.Bot.validate(); err != nil {

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/robfig/cron/v3"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -70,6 +71,14 @@ type BotConfig struct {
 
 	// SchedulerEnabled controls whether the scheduled command runner starts.
 	SchedulerEnabled bool
+
+	// KioskCleanupEnabled turns on the built-in job deleting old kiosk files.
+	// It is independent of SchedulerEnabled and uses SchedulerTimezone.
+	KioskCleanupEnabled bool
+	// KioskCleanupMaxAge is the file age (hours) past which kiosk files are deleted.
+	KioskCleanupMaxAge int
+	// KioskCleanupSchedule is the standard 5-field cron expression of the cleanup.
+	KioskCleanupSchedule string
 }
 
 func (b *BotConfig) validate() error {
@@ -132,6 +141,10 @@ func (b *BotConfig) validate() error {
 		errs = append(errs, fmt.Sprintf("invalid scheduler timezone %q", b.SchedulerTimezone))
 	}
 
+	if b.KioskCleanupEnabled {
+		errs = append(errs, b.validateKioskCleanup()...)
+	}
+
 	if b.PDFChannelJID != "" {
 		jid, err := types.ParseJID(b.PDFChannelJID)
 		if err != nil || jid.User == "" || jid.Server == "" {
@@ -146,6 +159,33 @@ func (b *BotConfig) validate() error {
 		return fmt.Errorf("bot configuration invalid: %s", strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+// validateKioskCleanup checks the cleanup settings. The max age must cover
+// every category retention, otherwise files still listed to users would be
+// deleted.
+func (b *BotConfig) validateKioskCleanup() []string {
+	var errs []string
+	if b.KioskCleanupMaxAge <= 0 {
+		errs = append(errs, "kiosk cleanup max age must be positive (hours)")
+	} else {
+		for _, ret := range []struct {
+			name  string
+			value int
+		}{
+			{"nacional", b.RetentionNacional},
+			{"internacional", b.RetentionInternacional},
+			{"magazine", b.RetentionMagazine},
+		} {
+			if b.KioskCleanupMaxAge < ret.value {
+				errs = append(errs, fmt.Sprintf("kiosk cleanup max age (%dh) must be >= %s retention (%dh)", b.KioskCleanupMaxAge, ret.name, ret.value))
+			}
+		}
+	}
+	if _, err := cron.ParseStandard(b.KioskCleanupSchedule); err != nil {
+		errs = append(errs, fmt.Sprintf("invalid kiosk cleanup schedule %q: %v", b.KioskCleanupSchedule, err))
+	}
+	return errs
 }
 
 // DatabaseDSN returns the effective database DSN.

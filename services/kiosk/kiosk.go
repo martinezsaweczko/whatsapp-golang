@@ -4,6 +4,7 @@ package kiosk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -65,6 +66,7 @@ type Service struct {
 	tracer     trace.Tracer
 	linksTotal metric.Int64Counter
 	listsTotal metric.Int64Counter
+	purged     metric.Int64Counter
 }
 
 // New creates the kiosk service
@@ -76,6 +78,11 @@ func New(categories []Category, urlServer string, store UsageStore, jwt TokenIss
 	listsTotal, err := o11.NewBusinessCounter(mp, "kiosk_lists_served_total", "File lists served per category")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create lists counter: %w", err)
+	}
+
+	purged, err := o11.NewBusinessCounter(mp, "kiosk_files_deleted_total", "Kiosk files deleted by the age-based cleanup per category")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create deleted files counter: %w", err)
 	}
 
 	cats := make(map[string]Category, len(categories))
@@ -92,6 +99,7 @@ func New(categories []Category, urlServer string, store UsageStore, jwt TokenIss
 		tracer:     tp.Tracer("services/kiosk"),
 		linksTotal: linksTotal,
 		listsTotal: listsTotal,
+		purged:     purged,
 	}, nil
 }
 
@@ -139,6 +147,96 @@ func (s *Service) List(ctx context.Context, category string) ([]FileEntry, error
 	})
 
 	return files, nil
+}
+
+// PurgeOld deletes the regular files of every category folder whose
+// modification time is older than maxAge. It is not recursive: subdirectories
+// and their content are left alone, and symlinks are never followed nor
+// removed. A folder that cannot be read or a file that cannot be deleted is
+// logged and does not stop the rest; the returned error joins every failure,
+// next to the number of files actually deleted.
+func (s *Service) PurgeOld(ctx context.Context, maxAge time.Duration) (int, error) {
+	ctx, span := s.tracer.Start(ctx, "kiosk.PurgeOld", trace.WithAttributes(attribute.String("max_age", maxAge.String())))
+	defer span.End()
+
+	if maxAge <= 0 {
+		err := fmt.Errorf("purge max age must be positive, got %s", maxAge)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return 0, err
+	}
+
+	names := make([]string, 0, len(s.categories))
+	for name := range s.categories {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	cutoff := time.Now().Add(-maxAge)
+	var errs []error
+	total := 0
+	for _, name := range names {
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, err)
+			break
+		}
+		deleted, err := s.purgeDir(ctx, s.categories[name], cutoff)
+		total += deleted
+		if deleted > 0 {
+			s.purged.Add(ctx, int64(deleted), metric.WithAttributes(attribute.String("category", name)))
+		}
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	span.SetAttributes(attribute.Int("deleted", total))
+	err := errors.Join(errs...)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	}
+	s.log.InfoContext(ctx, "Kiosk cleanup finished", "deleted", total, "max_age", maxAge.String(), "errors", len(errs))
+	return total, err
+}
+
+// purgeDir deletes the regular files of one category folder modified before cutoff.
+func (s *Service) purgeDir(ctx context.Context, cat Category, cutoff time.Time) (int, error) {
+	entries, err := os.ReadDir(cat.Dir)
+	if err != nil {
+		err = fmt.Errorf("failed to read directory %s: %w", cat.Dir, err)
+		s.log.WarnContext(ctx, "Kiosk cleanup skipped folder", "category", cat.Name, "error", err)
+		return 0, err
+	}
+
+	var errs []error
+	deleted := 0
+	for _, e := range entries {
+		// DirEntry.Info uses lstat, so a symlink reports its own mode and is skipped
+		info, err := e.Info()
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				errs = append(errs, fmt.Errorf("failed to stat %s: %w", filepath.Join(cat.Dir, e.Name()), err))
+			}
+			continue
+		}
+		if !info.Mode().IsRegular() || !info.ModTime().Before(cutoff) {
+			continue
+		}
+		full := filepath.Join(cat.Dir, e.Name())
+		if err := os.Remove(full); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue // removed concurrently, nothing left to do
+			}
+			err = fmt.Errorf("failed to delete %s: %w", full, err)
+			s.log.WarnContext(ctx, "Kiosk cleanup could not delete file", "category", cat.Name, "error", err)
+			errs = append(errs, err)
+			continue
+		}
+		deleted++
+		s.log.DebugContext(ctx, "Kiosk cleanup deleted file", "category", cat.Name, "file", e.Name(), "mod_time", info.ModTime())
+	}
+	return deleted, errors.Join(errs...)
 }
 
 // ListMessage builds the WhatsApp message listing the files of a category
