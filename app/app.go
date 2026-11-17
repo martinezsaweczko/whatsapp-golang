@@ -15,6 +15,7 @@ import (
 	"github.com/martinezsaweczko/whatsappBot-golang/model"
 	"github.com/martinezsaweczko/whatsappBot-golang/o11"
 	"github.com/martinezsaweczko/whatsappBot-golang/repository"
+	"github.com/martinezsaweczko/whatsappBot-golang/services/cleanup"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/scheduler"
 	"github.com/martinezsaweczko/whatsappBot-golang/whatsapp"
 )
@@ -43,6 +44,7 @@ type App struct {
 	buildInfo      model.BuildInfo
 	basePath       string
 	scheduler      *scheduler.Service
+	cleanup        *cleanup.Service
 }
 
 func NewApp(cfg *config.Config) *App {
@@ -102,6 +104,12 @@ func (app *App) WithScheduler(s *scheduler.Service) *App {
 	return app
 }
 
+// WithCleanup sets the kiosk cleanup service and returns the app instance for chaining.
+func (app *App) WithCleanup(c *cleanup.Service) *App {
+	app.cleanup = c
+	return app
+}
+
 func (app *App) Run() error {
 	// Validate required dependencies
 	if app.publicServer == nil || app.internalServer == nil {
@@ -142,6 +150,14 @@ func (app *App) Run() error {
 		}
 	}
 
+	// The kiosk cleanup only touches the filesystem; its first run is
+	// asynchronous and does not delay startup.
+	if app.cleanup != nil {
+		if err := app.cleanup.Start(app.ctx); err != nil {
+			return fmt.Errorf("failed to start kiosk cleanup: %w", err)
+		}
+	}
+
 	app.log.Info("Application started",
 		"public_port", app.config.HttpServer.Port,
 		"internal_port", app.config.InternalServer.Port,
@@ -178,6 +194,9 @@ func (app *App) shutdown() error {
 	// Stop the scheduler before waiting for in-flight commands.
 	if app.scheduler != nil {
 		app.scheduler.Stop()
+	}
+	if app.cleanup != nil {
+		app.cleanup.Stop()
 	}
 
 	// Wait for in-flight WhatsApp commands, then disconnect

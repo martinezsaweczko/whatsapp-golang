@@ -29,7 +29,7 @@ cmd/main.go        bootstrap
 app/               App builder + wiring
 config/            CLI flag configuration with validation
 whatsapp/          whatsmeow adapter (Sender iface), command router (regex registry)
-services/          kiosk, subscription, weather, quote, tts, ai, imagegen, electricity, jwt
+services/          kiosk, cleanup, subscription, weather, quote, tts, ai, imagegen, electricity, jwt
 repository/        SQLite (modernc, no CGO), parameterized queries, instrumented decorator
 http/              handlers (fileserver, trigger, health, version, metrics) + middleware
 o11/               OTel setup, metrics factories, trace-aware slog handler
@@ -81,6 +81,12 @@ curl -X DELETE http://localhost:9000/api/v1/scheduler/<schedule-uuid>
 job without deleting it.
 
 Use `-scheduler-timezone` to change the timezone and `-scheduler-enabled=false` to disable the runner.
+
+Separately from these schedules, a built-in job deletes kiosk files (every regular file in the
+`nacional`, `internacional` and `magazine` folders, not subdirectories or symlinks) whose modification
+time is older than `-kiosk-cleanup-max-age` hours (30 days by default). It runs once at startup and then
+on `-kiosk-cleanup-schedule` (04:00 daily by default) in `-scheduler-timezone`, even with
+`-scheduler-enabled=false`. Disable it with `-kiosk-cleanup-enabled=false`.
 ```
 
 Run (minimal flags):
@@ -113,6 +119,9 @@ First login shows a QR code in the terminal (or use `-bot-pair-phone 34XXXXXXXXX
 | `-pdf-category` | `nacional` | Kiosk category where downloaded PDFs are saved |
 | `-{nacional,internacional,magazine}-folder` | `/tmp/periodico/...` | Kiosk folders |
 | `-retention-{nacional,internacional,magazine}` | `24 / 169 / 720` | Retention (hours) |
+| `-kiosk-cleanup-enabled` | `true` | Delete old kiosk files at startup and on a daily schedule |
+| `-kiosk-cleanup-max-age` | `720` | Age (hours) past which kiosk files are deleted; must be >= every retention |
+| `-kiosk-cleanup-schedule` | `0 4 * * *` | Cron expression of the kiosk cleanup (in `-scheduler-timezone`) |
 | `-url-server` | `localhost:46564` | Public host:port for download links |
 | `-http-port` / `-internal-port` | `46564 / 9000` | Server ports |
 | `-db-path` / `-session-db-path` | `/tmp/db.sqlite`, `/tmp/session.db` | SQLite paths |
@@ -268,7 +277,7 @@ The coverage badge is refreshed by CI on every push to `main`: the `coverage-bad
 
 ## Observability
 
-- **Metrics** (Prometheus, internal server): `http_server_requests_total`, `http_server_request_duration_seconds`, `whatsapp_commands_total{command,result}`, `whatsapp_command_duration_seconds`, `repo_queries_total{operation,result}`, `repo_query_duration_seconds`, `external_api_{calls_total,duration_seconds}{service,target,status}` plus business counters (`kiosk_links_generated_total`, `subscription_events_total`, `files_served_total`, `jwt_tokens_rejected_total`, `electricity_cache_total`, `ai_replies_total`, `channelpdf_downloads_total`, `channelpdf_saved_total`, `channelpdf_notify_total`, ...)
+- **Metrics** (Prometheus, internal server): `http_server_requests_total`, `http_server_request_duration_seconds`, `whatsapp_commands_total{command,result}`, `whatsapp_command_duration_seconds`, `repo_queries_total{operation,result}`, `repo_query_duration_seconds`, `external_api_{calls_total,duration_seconds}{service,target,status}` plus business counters (`kiosk_links_generated_total`, `kiosk_files_deleted_total`, `subscription_events_total`, `files_served_total`, `jwt_tokens_rejected_total`, `electricity_cache_total`, `ai_replies_total`, `channelpdf_downloads_total`, `channelpdf_saved_total`, `channelpdf_notify_total`, ...)
 - **Traces**: OTLP gRPC to Tempo (`-o11-tracer-endpoint tempo:4317`), spans across HTTP → service → repository; exemplars link metrics to traces
 - **Logs**: slog text logs with `trace_id` / `span_id` injected per request/command
 

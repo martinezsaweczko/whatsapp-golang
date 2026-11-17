@@ -46,7 +46,7 @@ Tooling is not pinned beyond `swag` (`tools/tools.go`): the `goose` and `govulnc
 
 `cmd/main.go` builds the leaf dependencies in order: `config.LoadConfig` → slog handler wrapped in `o11.NewTraceLogHandler` → `o11.SetupOTelSDK` → `repository.New` (opens the DB and migrates) → `whatsapp.NewClient` → `whatsapp.NewRouter`, then connects them with `waClient.AddEventHandler(router.HandleEvent)`.
 
-`App.Run` (`app/app.go`) calls `initAndWire` (services, HTTP routes, command registration), starts the public and internal HTTP servers, connects WhatsApp, starts the scheduler and blocks on SIGINT/SIGTERM. Shutdown stops the servers (30s), then the scheduler, then waits for in-flight command handlers (`router.Wait()`, unbounded), then disconnects WhatsApp.
+`App.Run` (`app/app.go`) calls `initAndWire` (services, HTTP routes, command registration), starts the public and internal HTTP servers, connects WhatsApp, starts the scheduler and the kiosk cleanup (`services/cleanup`, when `-kiosk-cleanup-enabled`) and blocks on SIGINT/SIGTERM. Shutdown stops the servers (30s), then the scheduler, then the kiosk cleanup (waiting for a running purge), then waits for in-flight command handlers (`router.Wait()`, unbounded), then disconnects WhatsApp.
 
 `HTTPServer.Start` listens in a goroutine and always returns nil: a port already in use is only logged, the process keeps running.
 
@@ -84,7 +84,7 @@ The scheduler (`services/scheduler`, robfig/cron, 5-field expressions, only when
 ### Service behaviors worth knowing
 
 - **electricity**: the cache key uses the UTC date, while the "tomorrow's prices" window is 19:00–22:59 Europe/Madrid. A failed fetch writes a marker that blocks refetching for the rest of that day. Charts are drawn by hand with `fogleman/gg` and embedded fonts (no system font dependency).
-- **kiosk**: usage statistics are keyed by the sender's push name, not their JID.
+- **kiosk**: usage statistics are keyed by the sender's push name, not their JID. `PurgeOld` deletes regular files older than `-kiosk-cleanup-max-age` (default 720h) from the three folders, non-recursively and skipping symlinks; `services/cleanup` runs it once at startup (in a goroutine) and then on `-kiosk-cleanup-schedule` with its own cron runner in `-scheduler-timezone`, independent of `-scheduler-enabled`. Config validation requires the max age to be >= every category retention.
 - **subscription**: a subscription matches when its text is a case-insensitive substring of the new file name.
 - **channelpdf**: saves any document from the configured channel (no MIME check); an already existing file skips both the save and the notification.
 - **ai**: the fallback always replies text (the audio/TTS reply path was removed). Each mention sends a system prompt (troll persona for troll-listed senders), the same-day (00:00 Europe/Madrid) history of the same sender in the same chat capped by `-ai-history-max-turns` turns, and the new message. The exchange is stored in `ai_messages` only after a successful completion; history load/save/purge failures are logged and never block the reply. Rows older than 7 days are purged lazily, at most once per 24h, after a fallback reply. `Complete` (weather/quote) stays history-free. `-openai-base-url` points the client at an OpenAI-compatible server.

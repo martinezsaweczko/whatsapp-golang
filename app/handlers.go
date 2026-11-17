@@ -13,6 +13,7 @@ import (
 	"github.com/martinezsaweczko/whatsappBot-golang/services"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/ai"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/channelpdf"
+	"github.com/martinezsaweczko/whatsappBot-golang/services/cleanup"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/electricity"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/imagegen"
 	"github.com/martinezsaweczko/whatsappBot-golang/services/kiosk"
@@ -173,6 +174,19 @@ func (app *App) initAndWire() error {
 		if err != nil {
 			return fmt.Errorf("failed to create scheduler service: %w", err)
 		}
+	}
+
+	// Built-in kiosk cleanup: own cron runner, independent of the scheduler.
+	if cfg.Bot.KioskCleanupEnabled {
+		cleanupSvc, err := cleanup.New(kioskSvc, log, tp, cleanup.Config{
+			MaxAge:   time.Duration(cfg.Bot.KioskCleanupMaxAge) * hour,
+			Schedule: cfg.Bot.KioskCleanupSchedule,
+			Timezone: cfg.Bot.SchedulerTimezone,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create kiosk cleanup service: %w", err)
+		}
+		app.WithCleanup(cleanupSvc)
 	}
 
 	// ----- HTTP handlers -----
