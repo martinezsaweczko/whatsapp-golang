@@ -67,6 +67,11 @@ func TestServeFileOK(t *testing.T) {
 	if rec.Header().Get("Content-Type") != "application/pdf" {
 		t.Errorf("unexpected content type: %s", rec.Header().Get("Content-Type"))
 	}
+	// Browsers must not reuse a cached download: the token use limit only
+	// holds if every download reaches the server
+	if got := rec.Header().Get("Cache-Control"); got != "no-store, private" {
+		t.Errorf("Cache-Control = %q, want %q", got, "no-store, private")
+	}
 	if rec.Body.String() != string(content) {
 		t.Errorf("unexpected body: %q", rec.Body.String())
 	}

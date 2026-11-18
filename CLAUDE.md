@@ -72,7 +72,7 @@ The scheduler (`services/scheduler`, robfig/cron, 5-field expressions, only when
 
 ### Download tokens
 
-`http/middleware/jwt_query.go` reads `?access_token=`, verifies signature and expiry, then counts prior uses in the `jwt_used` table and records this one. Tokens are not bound to a file or category (constant subject), and a use is consumed even when the file turns out not to exist. Kiosk file indices shown to users are positions in a listing recomputed on every request (files within the retention window, newest first), not stable IDs.
+`http/middleware/jwt_query.go` reads `?access_token=`, verifies signature and expiry, then counts prior uses in the `jwt_used` table and records this one. Tokens are not bound to a file or category (constant subject), and a use is consumed even when the file turns out not to exist. File responses send `Cache-Control: no-store, private`: without it browsers served repeat downloads from cache and the use limit never applied. Kiosk file indices shown to users are positions in a listing recomputed on every request (files within the retention window, newest first), not stable IDs.
 
 ### Persistence
 
