@@ -118,6 +118,9 @@ func (h *FileServerHandler) serveFile(prefix, dir string) func(http.ResponseWrit
 		}
 		w.Header().Set("Content-Disposition", "attachment")
 		w.Header().Set("Content-Type", contentType)
+		// The URL carries the access token, so a cached response would let the
+		// browser download again without the server counting the token use
+		w.Header().Set("Cache-Control", "no-store, private")
 
 		// ServeContent sets Content-Length and supports range requests
 		http.ServeContent(w, r, fileName, info.ModTime(), file)
