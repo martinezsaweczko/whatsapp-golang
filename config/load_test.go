@@ -56,7 +56,7 @@ func TestLoadConfig(t *testing.T) {
 		if cfg.Bot.DBDriver != "sqlite" || cfg.Bot.DatabaseDSN() != "file:/tmp/db.sqlite?_foreign_keys=on" {
 			t.Errorf("default database = %s %s", cfg.Bot.DBDriver, cfg.Bot.DatabaseDSN())
 		}
-		if cfg.Bot.CommandTimeout != 60 || cfg.Bot.AIHistoryMaxTurns != 20 || cfg.Bot.OpenAIBaseURL != "" || cfg.Bot.SchedulerTimezone != "Europe/Madrid" || !cfg.Bot.SchedulerEnabled {
+		if cfg.Bot.CommandTimeout != 60 || cfg.Bot.AIContextDays != 180 || cfg.Bot.AIContextMaxChars != 400000 || cfg.Bot.OpenAIBaseURL != "" || cfg.Bot.SchedulerTimezone != "Europe/Madrid" || !cfg.Bot.SchedulerEnabled {
 			t.Errorf("unexpected bot defaults: %+v", cfg.Bot)
 		}
 		if cfg.Bot.TrollNumbers != nil {
@@ -79,6 +79,9 @@ func TestLoadConfig(t *testing.T) {
 			"-scheduler-enabled=false",
 			"-db-driver", "mysql",
 			"-db-dsn", "user:pass@tcp(db:3306)/bot",
+			"-ai-history-max-turns", "0", // deprecated: accepted and ignored
+			"-ai-context-days", "30",
+			"-ai-context-max-chars", "1000",
 		)...)
 
 		cfg, cfgErr := LoadConfig()
@@ -104,6 +107,9 @@ func TestLoadConfig(t *testing.T) {
 		}
 		if cfg.Bot.DatabaseDSN() != "user:pass@tcp(db:3306)/bot" {
 			t.Errorf("DSN = %q, want the mysql DSN", cfg.Bot.DatabaseDSN())
+		}
+		if cfg.Bot.AIContextDays != 30 || cfg.Bot.AIContextMaxChars != 1000 {
+			t.Errorf("ai context = %d days / %d chars, want 30 / 1000", cfg.Bot.AIContextDays, cfg.Bot.AIContextMaxChars)
 		}
 	})
 

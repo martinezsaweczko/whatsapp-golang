@@ -164,23 +164,23 @@ func (i *InstrumentedDB) DeleteScheduledCommand(ctx context.Context, id uuid.UUI
 	})
 }
 
-func (i *InstrumentedDB) SaveAIMessage(ctx context.Context, msg model.AIMessage) error {
-	return i.wrap(ctx, "ai_messages.insert", func(ctx context.Context) error {
-		return i.DB.SaveAIMessage(ctx, msg)
+func (i *InstrumentedDB) SaveChatMessage(ctx context.Context, msg model.ChatMessage) error {
+	return i.wrap(ctx, "chat_messages.insert", func(ctx context.Context) error {
+		return i.DB.SaveChatMessage(ctx, msg)
 	})
 }
 
-func (i *InstrumentedDB) ListAIMessages(ctx context.Context, chat, sender string, since time.Time, limit int) (msgs []model.AIMessage, err error) {
-	err = i.wrap(ctx, "ai_messages.select", func(ctx context.Context) error {
+func (i *InstrumentedDB) ListChatContext(ctx context.Context, chat string, since time.Time, maxChars int) (msgs []model.ChatMessage, err error) {
+	err = i.wrap(ctx, "chat_messages.select", func(ctx context.Context) error {
 		var err error
-		msgs, err = i.DB.ListAIMessages(ctx, chat, sender, since, limit)
+		msgs, err = i.DB.ListChatContext(ctx, chat, since, maxChars)
 		return err
 	})
 	return msgs, err
 }
 
-func (i *InstrumentedDB) PurgeAIMessages(ctx context.Context, before time.Time) error {
-	return i.wrap(ctx, "ai_messages.purge", func(ctx context.Context) error {
-		return i.DB.PurgeAIMessages(ctx, before)
+func (i *InstrumentedDB) PurgeChatMessages(ctx context.Context, before time.Time) error {
+	return i.wrap(ctx, "chat_messages.purge", func(ctx context.Context) error {
+		return i.DB.PurgeChatMessages(ctx, before)
 	})
 }

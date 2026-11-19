@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/martinezsaweczko/whatsappBot-golang/model"
 	"github.com/martinezsaweczko/whatsappBot-golang/o11"
 	"github.com/martinezsaweczko/whatsappBot-golang/whatsapp"
 	"github.com/sashabaranov/go-openai"
@@ -25,26 +24,32 @@ const trollPrompt = "Eres un bufon, responde lo que te preguntan pero intenta se
 
 // Service provides AI completions
 type Service struct {
-	client    *openai.Client
-	model     string
-	trollJIDs map[string]bool
-	history   HistoryStore
-	maxTurns  int
-	loc       *time.Location
-	now       func() time.Time
+	client     *openai.Client
+	model      string
+	trollJIDs  map[string]bool
+	store      ChatStore
+	contextCfg ContextConfig
+	loc        *time.Location
+	now        func() time.Time
 
-	purgeMu      sync.Mutex
-	lastPurge    time.Time
-	log          *slog.Logger
-	tracer       trace.Tracer
-	repliesTotal metric.Int64Counter
+	purgeMu       sync.Mutex
+	lastPurge     time.Time
+	log           *slog.Logger
+	tracer        trace.Tracer
+	repliesTotal  metric.Int64Counter
+	recordedTotal metric.Int64Counter
 }
 
-// New creates the AI service. httpClient is the instrumented external client.
-func New(apiKey, model, baseURL string, httpClient *http.Client, trollJIDs []string, history HistoryStore, maxTurns int, log *slog.Logger, tp trace.TracerProvider, mp metric.MeterProvider) (*Service, error) {
+// New creates the AI service. httpClient is the instrumented external client;
+// store keeps the group conversations used as context.
+func New(apiKey, model, baseURL string, httpClient *http.Client, trollJIDs []string, store ChatStore, contextCfg ContextConfig, log *slog.Logger, tp trace.TracerProvider, mp metric.MeterProvider) (*Service, error) {
 	repliesTotal, err := o11.NewBusinessCounter(mp, "ai_replies_total", "AI replies per mode (text)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ai counter: %w", err)
+	}
+	recordedTotal, err := o11.NewBusinessCounter(mp, "ai_chat_messages_recorded_total", "Group messages recorded as AI context, per result")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ai recorder counter: %w", err)
 	}
 
 	cfg := openai.DefaultConfig(apiKey)
@@ -65,16 +70,17 @@ func New(apiKey, model, baseURL string, httpClient *http.Client, trollJIDs []str
 	}
 
 	return &Service{
-		client:       openai.NewClientWithConfig(cfg),
-		model:        model,
-		trollJIDs:    trolls,
-		history:      history,
-		maxTurns:     maxTurns,
-		loc:          loc,
-		now:          time.Now,
-		log:          log,
-		tracer:       tp.Tracer("services/ai"),
-		repliesTotal: repliesTotal,
+		client:        openai.NewClientWithConfig(cfg),
+		model:         model,
+		trollJIDs:     trolls,
+		store:         store,
+		contextCfg:    contextCfg,
+		loc:           loc,
+		now:           time.Now,
+		log:           log,
+		tracer:        tp.Tracer("services/ai"),
+		repliesTotal:  repliesTotal,
+		recordedTotal: recordedTotal,
 	}, nil
 }
 
@@ -115,10 +121,10 @@ func (s *Service) Fallback() whatsapp.CommandHandler {
 	}
 }
 
-// maybePurge deletes history older than the retention window, at most once
-// per purgeInterval. Failures are logged and retried on the next fallback.
+// maybePurge deletes chat messages older than the context window, at most
+// once per purgeInterval. Failures are logged and retried on the next fallback.
 func (s *Service) maybePurge(ctx context.Context) {
-	if s.history == nil {
+	if s.store == nil {
 		return
 	}
 	now := s.now()
@@ -130,66 +136,39 @@ func (s *Service) maybePurge(ctx context.Context) {
 	s.lastPurge = now
 	s.purgeMu.Unlock()
 
-	if err := s.history.PurgeAIMessages(ctx, now.Add(-historyRetention)); err != nil {
-		s.log.Warn("Cannot purge AI history", "error", err)
+	if err := s.store.PurgeChatMessages(ctx, now.Add(-s.contextCfg.window())); err != nil {
+		s.log.Warn("Cannot purge chat history", "error", err)
 		s.purgeMu.Lock()
 		s.lastPurge = time.Time{}
 		s.purgeMu.Unlock()
 	}
 }
 
-// replyText answers with a completion that includes the same-day history of
-// the sender in this chat. The exchange is stored only after a successful
-// completion; history failures never prevent the reply.
+// replyText answers with a completion. In groups it includes the recent group
+// conversation and stores the reply as a bot message after a successful
+// completion; history failures never prevent the reply. Private chats are
+// answered without history.
 func (s *Service) replyText(ctx context.Context, sender whatsapp.Sender, msg whatsapp.IncomingMessage) error {
-	chat, user := msg.Chat.String(), msg.Sender.String()
-	history := s.loadHistory(ctx, chat, user)
+	var transcript string
+	if msg.IsGroup {
+		transcript = s.loadTranscript(ctx, msg)
+	}
 
 	system := systemPrompt
 	if s.isTroll(msg) {
 		system = trollPrompt
 	}
 
-	reply, err := s.completeMessages(ctx, buildMessages(system, history, msg.Body))
+	reply, err := s.completeMessages(ctx, buildMessages(system, transcript, msg.Body))
 	if err != nil {
 		return sender.ReplyText(ctx, msg, "Ahora mismo no puedo responder, inténtalo más tarde")
 	}
 
-	s.saveExchange(ctx, chat, user, msg.Body, reply)
+	if msg.IsGroup {
+		s.saveReply(ctx, msg, reply)
+	}
 	s.repliesTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("mode", "text")))
 	return sender.ReplyText(ctx, msg, reply)
-}
-
-// loadHistory returns today's turns (Europe/Madrid) of the sender in the chat,
-// capped to maxTurns question/answer pairs. Failures are logged and ignored.
-func (s *Service) loadHistory(ctx context.Context, chat, user string) []model.AIMessage {
-	if s.history == nil {
-		return nil
-	}
-	since := startOfDay(s.now(), s.loc)
-	msgs, err := s.history.ListAIMessages(ctx, chat, user, since, s.maxTurns*2)
-	if err != nil {
-		s.log.Warn("Cannot load AI history, answering without it", "chat", chat, "error", err)
-		return nil
-	}
-	return msgs
-}
-
-// saveExchange stores the question and its answer. Failures are only logged.
-func (s *Service) saveExchange(ctx context.Context, chat, user, question, reply string) {
-	if s.history == nil {
-		return
-	}
-	now := s.now()
-	for _, m := range []model.AIMessage{
-		{ChatJID: chat, SenderJID: user, Role: model.AIRoleUser, Content: question, CreatedAt: now},
-		{ChatJID: chat, SenderJID: user, Role: model.AIRoleAssistant, Content: reply, CreatedAt: now},
-	} {
-		if err := s.history.SaveAIMessage(ctx, m); err != nil {
-			s.log.Warn("Cannot save AI history", "chat", chat, "role", m.Role, "error", err)
-			return
-		}
-	}
 }
 
 // completeMessages sends a multi-message conversation and returns the reply.

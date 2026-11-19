@@ -239,17 +239,17 @@ func TestInstrumentedRecordsFailures(t *testing.T) {
 		{"jwt_used.clean", func(db *InstrumentedDB) error { return db.CleanJWT(ctx) }},
 		{"file_usage.insert", func(db *InstrumentedDB) error { return db.ReportFileUsage(ctx, "a.pdf", 404) }},
 		{"user_usage.insert", func(db *InstrumentedDB) error { return db.ReportUserUsage(ctx, "David", "a.pdf") }},
-		{"ai_messages.insert", func(db *InstrumentedDB) error {
-			return db.SaveAIMessage(ctx, model.AIMessage{ChatJID: "c", SenderJID: "s", Role: model.AIRoleUser, Content: "hi"})
+		{"chat_messages.insert", func(db *InstrumentedDB) error {
+			return db.SaveChatMessage(ctx, model.ChatMessage{ChatJID: "g", MessageID: "m", Body: "hi"})
 		}},
-		{"ai_messages.select", func(db *InstrumentedDB) error {
-			msgs, err := db.ListAIMessages(ctx, "c", "s", time.Time{}, 10)
+		{"chat_messages.select", func(db *InstrumentedDB) error {
+			msgs, err := db.ListChatContext(ctx, "g", time.Time{}, 10)
 			if msgs != nil {
-				t.Errorf("ListAIMessages returned %v alongside an error", msgs)
+				t.Errorf("ListChatContext returned %v alongside an error", msgs)
 			}
 			return err
 		}},
-		{"ai_messages.purge", func(db *InstrumentedDB) error { return db.PurgeAIMessages(ctx, time.Now()) }},
+		{"chat_messages.purge", func(db *InstrumentedDB) error { return db.PurgeChatMessages(ctx, time.Now()) }},
 	}
 
 	for _, tt := range tests {

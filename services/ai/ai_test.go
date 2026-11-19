@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -81,14 +82,16 @@ func newFakeOpenAI(t *testing.T, replies ...string) *fakeOpenAI {
 }
 
 type listCall struct {
-	chat, sender string
-	since        time.Time
-	limit        int
+	chat     string
+	since    time.Time
+	maxChars int
 }
 
-// fakeHistory is an in-memory HistoryStore that records its calls.
-type fakeHistory struct {
-	stored    []model.AIMessage
+// fakeStore is an in-memory ChatStore that records its calls. List returns
+// every stored row of the chat, ignoring since and the budget.
+type fakeStore struct {
+	mu        sync.Mutex
+	stored    []model.ChatMessage
 	listCalls []listCall
 	purges    []time.Time
 	listErr   error
@@ -96,7 +99,9 @@ type fakeHistory struct {
 	purgeErr  error
 }
 
-func (f *fakeHistory) SaveAIMessage(_ context.Context, msg model.AIMessage) error {
+func (f *fakeStore) SaveChatMessage(_ context.Context, msg model.ChatMessage) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.saveErr != nil {
 		return f.saveErr
 	}
@@ -104,29 +109,36 @@ func (f *fakeHistory) SaveAIMessage(_ context.Context, msg model.AIMessage) erro
 	return nil
 }
 
-func (f *fakeHistory) ListAIMessages(_ context.Context, chat, sender string, since time.Time, limit int) ([]model.AIMessage, error) {
-	f.listCalls = append(f.listCalls, listCall{chat, sender, since, limit})
+func (f *fakeStore) ListChatContext(_ context.Context, chat string, since time.Time, maxChars int) ([]model.ChatMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listCalls = append(f.listCalls, listCall{chat, since, maxChars})
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
-	var out []model.AIMessage
+	var out []model.ChatMessage
 	for _, m := range f.stored {
-		if m.ChatJID == chat && m.SenderJID == sender {
+		if m.ChatJID == chat {
 			out = append(out, m)
 		}
 	}
 	return out, nil
 }
 
-func (f *fakeHistory) PurgeAIMessages(_ context.Context, before time.Time) error {
+func (f *fakeStore) PurgeChatMessages(_ context.Context, before time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.purges = append(f.purges, before)
 	return f.purgeErr
 }
 
-func newTestService(t *testing.T, server *fakeOpenAI, trolls []string, store HistoryStore) *Service {
+const botJID = "34936674253@s.whatsapp.net"
+
+func newTestService(t *testing.T, server *fakeOpenAI, trolls []string, store ChatStore) *Service {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	svc, err := New("test-key", "test-model", server.URL+"/v1", server.Client(), trolls, store, 3, log,
+	svc, err := New("test-key", "test-model", server.URL+"/v1", server.Client(), trolls, store,
+		ContextConfig{Days: 180, MaxChars: 1000, BotJID: botJID}, log,
 		tracenoop.NewTracerProvider(), noop.NewMeterProvider())
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
@@ -135,17 +147,20 @@ func newTestService(t *testing.T, server *fakeOpenAI, trolls []string, store His
 }
 
 var (
-	alice = types.NewJID("34645568517", types.DefaultUserServer)
-	group = types.NewJID("120363000000000000", types.GroupServer)
+	alice      = types.NewJID("34645568517", types.DefaultUserServer)
+	aliceLID   = types.NewJID("111222333444555", types.HiddenUserServer)
+	bob        = types.NewJID("34600111222", types.DefaultUserServer)
+	group      = types.NewJID("120363000000000000", types.GroupServer)
+	privateJID = alice
 )
 
 func mention(body string) whatsapp.IncomingMessage {
-	return whatsapp.IncomingMessage{Body: body, Sender: alice, Chat: group}
+	return whatsapp.IncomingMessage{ID: "Q1", Body: body, Sender: alice, Chat: group, IsGroup: true, PushName: "Alice"}
 }
 
 func TestFallbackTextReply(t *testing.T) {
 	server := newFakeOpenAI(t, "respuesta de prueba")
-	svc := newTestService(t, server, nil, &fakeHistory{})
+	svc := newTestService(t, server, nil, &fakeStore{})
 	sender := &fakeSender{}
 
 	if err := svc.Fallback()(context.Background(), sender, mention("@bot cuéntame algo")); err != nil {
@@ -170,7 +185,7 @@ func TestFallbackTextReply(t *testing.T) {
 
 func TestFallbackTrollSystemPrompt(t *testing.T) {
 	server := newFakeOpenAI(t, "respuesta troll")
-	svc := newTestService(t, server, []string{alice.String()}, &fakeHistory{})
+	svc := newTestService(t, server, []string{alice.String()}, &fakeStore{})
 
 	if err := svc.Fallback()(context.Background(), &fakeSender{}, mention("@bot pregunta seria")); err != nil {
 		t.Fatalf("handler failed: %v", err)
@@ -185,83 +200,10 @@ func TestFallbackTrollSystemPrompt(t *testing.T) {
 	}
 }
 
-func TestFallbackSendsHistoryInOrder(t *testing.T) {
-	server := newFakeOpenAI(t, "nueva")
-	store := &fakeHistory{stored: []model.AIMessage{
-		{ChatJID: group.String(), SenderJID: alice.String(), Role: model.AIRoleUser, Content: "q1"},
-		{ChatJID: group.String(), SenderJID: alice.String(), Role: model.AIRoleAssistant, Content: "a1"},
-		{ChatJID: "otro@g.us", SenderJID: alice.String(), Role: model.AIRoleUser, Content: "otro chat"},
-	}}
-	svc := newTestService(t, server, nil, store)
-
-	if err := svc.Fallback()(context.Background(), &fakeSender{}, mention("q2")); err != nil {
-		t.Fatalf("handler failed: %v", err)
-	}
-
-	want := []chatMessage{{"system", systemPrompt}, {"user", "q1"}, {"assistant", "a1"}, {"user", "q2"}}
-	got := server.requests[0]
-	if len(got) != len(want) {
-		t.Fatalf("messages = %+v, want %+v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("messages = %+v, want %+v", got, want)
-		}
-	}
-}
-
-func TestFallbackRequestsOnlySameDayHistory(t *testing.T) {
-	server := newFakeOpenAI(t, "ok")
-	store := &fakeHistory{}
-	svc := newTestService(t, server, nil, store)
-	// 2026-07-01 23:30 UTC is already 01:30 on July 2nd in Madrid (UTC+2)
-	svc.now = func() time.Time { return time.Date(2026, 7, 1, 23, 30, 0, 0, time.UTC) }
-
-	if err := svc.Fallback()(context.Background(), &fakeSender{}, mention("hola")); err != nil {
-		t.Fatalf("handler failed: %v", err)
-	}
-
-	if len(store.listCalls) != 1 {
-		t.Fatalf("expected one history load, got %d", len(store.listCalls))
-	}
-	call := store.listCalls[0]
-	wantSince := time.Date(2026, 7, 1, 22, 0, 0, 0, time.UTC) // 00:00 Madrid
-	if call.chat != group.String() || call.sender != alice.String() {
-		t.Errorf("history requested for %s/%s, want %s/%s", call.chat, call.sender, group, alice)
-	}
-	if !call.since.Equal(wantSince) {
-		t.Errorf("since = %v, want %v", call.since, wantSince)
-	}
-	if call.limit != 6 { // maxTurns 3 * 2 messages per turn
-		t.Errorf("limit = %d, want 6", call.limit)
-	}
-}
-
-func TestFallbackSavesExchangeAfterSuccess(t *testing.T) {
-	server := newFakeOpenAI(t, "respuesta")
-	store := &fakeHistory{}
-	svc := newTestService(t, server, nil, store)
-
-	if err := svc.Fallback()(context.Background(), &fakeSender{}, mention("pregunta")); err != nil {
-		t.Fatalf("handler failed: %v", err)
-	}
-
-	if len(store.stored) != 2 {
-		t.Fatalf("stored %d messages, want 2", len(store.stored))
-	}
-	u, a := store.stored[0], store.stored[1]
-	if u.Role != model.AIRoleUser || u.Content != "pregunta" || a.Role != model.AIRoleAssistant || a.Content != "respuesta" {
-		t.Errorf("unexpected stored exchange: %+v", store.stored)
-	}
-	if u.ChatJID != group.String() || u.SenderJID != alice.String() {
-		t.Errorf("exchange stored under %s/%s", u.ChatJID, u.SenderJID)
-	}
-}
-
 func TestFallbackSavesNothingWhenCompletionFails(t *testing.T) {
 	server := newFakeOpenAI(t, "x")
 	server.status = http.StatusInternalServerError
-	store := &fakeHistory{}
+	store := &fakeStore{}
 	svc := newTestService(t, server, nil, store)
 	sender := &fakeSender{}
 
@@ -279,7 +221,7 @@ func TestFallbackSavesNothingWhenCompletionFails(t *testing.T) {
 
 func TestFallbackHistoryFailuresDoNotBlockReply(t *testing.T) {
 	server := newFakeOpenAI(t, "respuesta")
-	store := &fakeHistory{listErr: errors.New("db down"), saveErr: errors.New("db down")}
+	store := &fakeStore{listErr: errors.New("db down"), saveErr: errors.New("db down")}
 	svc := newTestService(t, server, nil, store)
 	sender := &fakeSender{}
 
@@ -297,7 +239,7 @@ func TestFallbackHistoryFailuresDoNotBlockReply(t *testing.T) {
 
 func TestCompleteStaysHistoryFree(t *testing.T) {
 	server := newFakeOpenAI(t, "ok")
-	store := &fakeHistory{}
+	store := &fakeStore{}
 	svc := newTestService(t, server, nil, store)
 
 	if got, err := svc.Complete(context.Background(), "prompt"); err != nil || got != "ok" {
@@ -313,7 +255,7 @@ func TestCompleteStaysHistoryFree(t *testing.T) {
 
 func TestFallbackPurgesOncePer24h(t *testing.T) {
 	server := newFakeOpenAI(t, "ok")
-	store := &fakeHistory{}
+	store := &fakeStore{}
 	svc := newTestService(t, server, nil, store)
 	now := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
 	svc.now = func() time.Time { return now }
@@ -332,8 +274,8 @@ func TestFallbackPurgesOncePer24h(t *testing.T) {
 	if len(store.purges) != 1 {
 		t.Fatalf("purges = %d within 24h, want 1", len(store.purges))
 	}
-	if want := time.Date(2026, 6, 24, 10, 0, 0, 0, time.UTC); !store.purges[0].Equal(want) {
-		t.Errorf("purge cutoff = %v, want %v (7 days back)", store.purges[0], want)
+	if want := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC).Add(-180 * 24 * time.Hour); !store.purges[0].Equal(want) {
+		t.Errorf("purge cutoff = %v, want %v (180 days back)", store.purges[0], want)
 	}
 
 	now = now.Add(24 * time.Hour)
@@ -345,7 +287,7 @@ func TestFallbackPurgesOncePer24h(t *testing.T) {
 
 func TestFallbackPurgeFailureIsHarmlessAndRetried(t *testing.T) {
 	server := newFakeOpenAI(t, "ok")
-	store := &fakeHistory{purgeErr: errors.New("db down")}
+	store := &fakeStore{purgeErr: errors.New("db down")}
 	svc := newTestService(t, server, nil, store)
 	sender := &fakeSender{}
 

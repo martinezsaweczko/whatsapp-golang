@@ -39,7 +39,9 @@ type BotConfig struct {
 	OpenAIAPIKey          string
 	OpenAIModel           string
 	OpenAIBaseURL         string // OpenAI-compatible API base URL; empty = OpenAI default
-	AIHistoryMaxTurns     int    // Max previous turns sent to the AI as same-day context
+	AIHistoryMaxTurns     int    // Deprecated: ignored, kept so the -ai-history-max-turns flag is still accepted
+	AIContextDays         int    // Days of group conversation sent to the AI (and retention of stored messages)
+	AIContextMaxChars     int    // Character budget of the group conversation sent to the AI
 	WeatherAPIKey         string
 	WeatherAPIURL         string
 	WeatherForecastAPIURL string
@@ -132,8 +134,11 @@ func (b *BotConfig) validate() error {
 	if b.CommandTimeout <= 0 {
 		errs = append(errs, "command timeout must be positive")
 	}
-	if b.AIHistoryMaxTurns <= 0 {
-		errs = append(errs, "ai history max turns must be positive")
+	if b.AIContextDays <= 0 {
+		errs = append(errs, "ai context days must be positive")
+	}
+	if b.AIContextMaxChars <= 0 {
+		errs = append(errs, "ai context max chars must be positive")
 	}
 	if b.SchedulerTimezone == "" {
 		errs = append(errs, "scheduler timezone cannot be empty")

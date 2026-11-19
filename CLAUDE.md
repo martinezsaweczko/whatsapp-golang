@@ -55,9 +55,10 @@ Tooling is not pinned beyond `swag` (`tools/tools.go`): the `goose` and `govulnc
 `Router.HandleEvent` → `dispatch` (`whatsapp/router.go`):
 
 1. Messages from the bot itself are dropped.
-2. A document posted in the `-pdf-channel-jid` chat goes to the channel-media handler (`services/channelpdf`) before any command matching.
-3. The first command whose `Pattern` matches the body wins. Order is the registration order in `initAndWire`: kiosk, subscription, tts, weather, imagegen, electricity. Patterns are anchored prefixes, so a new command can be shadowed by an earlier, shorter one.
-4. With no match, the AI fallback (`services/ai`) runs only if the bot is mentioned. The mention check is an exact string compare against `-bot-mentioned-number` and `<bot-number>@c.us`.
+2. Every non-empty text message in a group is handed to the message recorder (`Router.SetRecorder`, implemented by `services/ai`, which stores it in `chat_messages`) before any command matching, synchronously with a 5s context and panic recovery; recorder failures are only logged.
+3. A document posted in the `-pdf-channel-jid` chat goes to the channel-media handler (`services/channelpdf`) before any command matching.
+4. The first command whose `Pattern` matches the body wins. Order is the registration order in `initAndWire`: kiosk, subscription, tts, weather, imagegen, electricity. Patterns are anchored prefixes, so a new command can be shadowed by an earlier, shorter one.
+5. With no match, the AI fallback (`services/ai`) runs only if the bot is mentioned. The mention check is an exact string compare against `-bot-mentioned-number` and `<bot-number>@c.us`.
 
 `Router.execute` runs the matched handler in a goroutine with panic recovery, a `-command-timeout` context (default 60s), a `whatsapp.command.<name>` span and command metrics.
 
@@ -77,7 +78,7 @@ The scheduler (`services/scheduler`, robfig/cron, 5-field expressions, only when
 ### Persistence
 
 - `repository.DB` holds the queries; `repository.InstrumentedDB` embeds it and adds spans and metrics. A new repository method is only instrumented if a wrapper is added in `instrumented.go`; otherwise the embedded method is promoted silently.
-- Tables: `subscriptions`, `jwt_used`, `file_usage`, `user_usage`, `scheduled_commands`, `ai_messages` (AI fallback history; `created_at` is Unix milliseconds).
+- Tables: `subscriptions`, `jwt_used`, `file_usage`, `user_usage`, `scheduled_commands`, `chat_messages` (group conversation used as AI context; replaced `ai_messages` in migration 005; `created_at` is Unix milliseconds; unique `(chat_jid, message_id)` so duplicate events are ignored).
 - Primary keys are UUID v7, stored as TEXT on SQLite and BINARY(16) on MySQL; go through `uuidValue` / `scanUUID`. Dialect-specific SQL branches on `DB.dialect`.
 - SQLite runs with a single open connection.
 
@@ -87,7 +88,7 @@ The scheduler (`services/scheduler`, robfig/cron, 5-field expressions, only when
 - **kiosk**: usage statistics are keyed by the sender's push name, not their JID. `PurgeOld` deletes regular files older than `-kiosk-cleanup-max-age` (default 720h) from the three folders, non-recursively and skipping symlinks; `services/cleanup` runs it once at startup (in a goroutine) and then on `-kiosk-cleanup-schedule` with its own cron runner in `-scheduler-timezone`, independent of `-scheduler-enabled`. Config validation requires the max age to be >= every category retention.
 - **subscription**: a subscription matches when its text is a case-insensitive substring of the new file name.
 - **channelpdf**: saves any document from the configured channel (no MIME check); an already existing file skips both the save and the notification.
-- **ai**: the fallback always replies text (the audio/TTS reply path was removed). Each mention sends a system prompt (troll persona for troll-listed senders), the same-day (00:00 Europe/Madrid) history of the same sender in the same chat capped by `-ai-history-max-turns` turns, and the new message. The exchange is stored in `ai_messages` only after a successful completion; history load/save/purge failures are logged and never block the reply. Rows older than 7 days are purged lazily, at most once per 24h, after a fallback reply. `Complete` (weather/quote) stays history-free. `-openai-base-url` points the client at an OpenAI-compatible server.
+- **ai**: the fallback always replies text (the audio/TTS reply path was removed). In a group, each mention sends a system prompt (troll persona for troll-listed senders) extended with an explanation of the transcript format, then one user message with the group transcript of the last `-ai-context-days` days (all senders, read newest first until `-ai-context-max-chars` characters, then chronological; `[YYYY-MM-DD HH:MM] Name: text` in Europe/Madrid time, the asker's lines marked `(QUIEN PREGUNTA)` by matching Sender or SenderAlt, the bot's replies as `Bot`), then the new question (excluded from the transcript by message ID). Private chats get only system prompt + question. After a successful completion in a group the reply is stored as a bot row; the question is not stored again (the recorder did). History load/save/purge failures are logged and never block the reply. Rows older than `-ai-context-days` are purged lazily, at most once per 24h, after a fallback reply. `-ai-history-max-turns` is deprecated and ignored. `Complete` (weather/quote) stays history-free. `-openai-base-url` points the client at an OpenAI-compatible server.
 - **tts**: uses the unofficial Google Translate TTS endpoint, Spanish only.
 
 ## Where AGENTS.md is out of date
