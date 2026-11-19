@@ -75,10 +75,10 @@ func (s *Service) RecordMessage(ctx context.Context, msg whatsapp.IncomingMessag
 	if !msg.SenderAlt.IsEmpty() {
 		alt = msg.SenderAlt.ToNonAD().String()
 	}
+	// Device suffixes are dropped so one person matches across devices
 	err := s.store.SaveChatMessage(ctx, model.ChatMessage{
 		ChatJID:      msg.Chat.String(),
 		MessageID:    string(msg.ID),
-		// Device suffixes are dropped so one person matches across devices
 		SenderJID:    msg.Sender.ToNonAD().String(),
 		SenderAltJID: alt,
 		PushName:     msg.PushName,
