@@ -17,7 +17,7 @@ WhatsApp bot written in Go (port of the [whatsappBot-node](../whatsappBot-node) 
 - **TTS**: `audio: text` — replies with a Spanish voice note and deletes your command message
 - **Image generation**: `imagen: prompt` — Stability AI
 - **Electricity prices**: `electricidad` — PVPC chart from ESIOS (REE), with per-day cache and tomorrow's data after 19:00 Madrid time
-- **AI fallback**: mention the bot in a group and the AI answers with text, keeping that day's conversation per user and chat; troll-listed users get trolled
+- **AI fallback**: mention the bot and the AI answers with text; troll-listed users get trolled. In groups the bot records every text message and sends the AI the group's conversation of the last `-ai-context-days` days (newest first up to `-ai-context-max-chars` characters), marking the asker's lines; private chats get no history. **Privacy**: all members' group messages are stored for that window (180 days by default) and then purged — inform the group members
 - **Observability**: Prometheus metrics on all layers (HTTP, commands, repository, external APIs) + OTLP traces (Tempo) + `trace_id`-correlated logs
 
 ## Architecture
@@ -127,7 +127,9 @@ First login shows a QR code in the terminal (or use `-bot-pair-phone 34XXXXXXXXX
 | `-db-path` / `-session-db-path` | `/tmp/db.sqlite`, `/tmp/session.db` | SQLite paths |
 | `-openai-api-key` / `-openai-model` | / `gpt-4o-mini` | OpenAI |
 | `-openai-base-url` | | Base URL of an OpenAI-compatible API (empty = OpenAI) |
-| `-ai-history-max-turns` | `20` | Previous question/answer turns sent to the AI as same-day context |
+| `-ai-context-days` | `180` | Days of group conversation sent to the AI on a mention; also the retention of stored group messages |
+| `-ai-context-max-chars` | `400000` | Character budget of the group conversation sent to the AI (newest messages first) |
+| `-ai-history-max-turns` | `20` | **Deprecated, ignored** (still accepted so existing deployments start) |
 | `-weather-api-key` | | OpenWeatherMap |
 | `-quote-api-key` | | API Ninjas (quote command) |
 | `-stability-api-key` | | Stability AI |

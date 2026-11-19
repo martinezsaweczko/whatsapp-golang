@@ -39,6 +39,15 @@ type CommandHandler func(ctx context.Context, s Sender, msg IncomingMessage) err
 // channel/group JID (e.g. automatic PDF downloads).
 type ChannelMediaHandler func(ctx context.Context, s Sender, msg IncomingMessage) error
 
+// MessageRecorder persists incoming messages (e.g. group conversation history).
+// Implementations own their error handling: the router never sees a failure.
+type MessageRecorder interface {
+	RecordMessage(ctx context.Context, msg IncomingMessage)
+}
+
+// recordTimeout bounds how long recording may block the event loop.
+const recordTimeout = 5 * time.Second
+
 // Command binds a regex pattern to a handler. First matching command wins.
 type Command struct {
 	Name    string // Used in logs and metrics
@@ -54,6 +63,7 @@ type Router struct {
 	sender      Sender
 	commands    []Command
 	fallback    CommandHandler
+	recorder    MessageRecorder
 	botJIDs     []string // JID forms that count as a bot mention (see BotMentionJIDs)
 	timeout     time.Duration
 	wg          sync.WaitGroup
@@ -143,6 +153,12 @@ func (r *Router) ExecuteCommand(ctx context.Context, body string, chat, senderJI
 	return nil
 }
 
+// SetRecorder sets the recorder that receives every non-empty text message
+// sent by others in a group, before any command matching.
+func (r *Router) SetRecorder(rec MessageRecorder) {
+	r.recorder = rec
+}
+
 // SetFallback sets the handler invoked when no command matches and the bot is mentioned
 func (r *Router) SetFallback(handler CommandHandler) {
 	r.fallback = handler
@@ -205,6 +221,10 @@ func (r *Router) dispatch(evt *events.Message) {
 		return
 	}
 
+	if r.recorder != nil && msg.IsGroup && msg.Body != "" {
+		r.record(msg)
+	}
+
 	// Channel media handler takes precedence for document messages from the
 	// configured channel/group JID, even when there is no text body.
 	if r.channelMedia.handler != nil && r.matchesChannelMedia(msg) {
@@ -226,6 +246,19 @@ func (r *Router) dispatch(evt *events.Message) {
 	if r.fallback != nil && r.mentionsBot(msg) {
 		r.execute("ai_fallback", r.fallback, msg)
 	}
+}
+
+// record hands the message to the recorder with a bounded context. A panic in
+// the recorder is logged and never reaches the event loop.
+func (r *Router) record(msg IncomingMessage) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			r.log.Error("Message recorder panicked", "panic", fmt.Sprint(rec), "chat", msg.Chat.String())
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), recordTimeout)
+	defer cancel()
+	r.recorder.RecordMessage(ctx, msg)
 }
 
 // matchesChannelMedia reports whether the message is a document message sent to

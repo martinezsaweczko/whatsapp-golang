@@ -1,6 +1,8 @@
 package whatsapp
 
 import (
+	"time"
+
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -23,6 +25,7 @@ type IncomingMessage struct {
 	DocumentMIMEType string          // Document MIME type, if HasDocument is true
 	DocumentFileName string          // Document filename, if HasDocument is true
 	Synthetic        bool            // True when the message is not a real incoming event (e.g. scheduled command)
+	Timestamp        time.Time       // When the message was sent (creation time for synthetic messages)
 }
 
 // NewSyntheticMessage creates an IncomingMessage for a scheduled or otherwise
@@ -34,6 +37,7 @@ func NewSyntheticMessage(chat, sender types.JID, body string) IncomingMessage {
 		Body:      body,
 		IsGroup:   chat.Server == types.GroupServer,
 		Synthetic: true,
+		Timestamp: time.Now(),
 	}
 }
 
@@ -47,6 +51,7 @@ func NewIncomingMessage(evt *events.Message) IncomingMessage {
 		PushName:   evt.Info.PushName,
 		IsGroup:    evt.Info.IsGroup,
 		RawMessage: evt.Message,
+		Timestamp:  evt.Info.Timestamp,
 	}
 
 	msg.Body = extractText(evt.Message)

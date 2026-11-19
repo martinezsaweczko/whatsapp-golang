@@ -20,7 +20,8 @@ func validBotConfig() BotConfig {
 		DBPath:                 "/tmp/db.sqlite",
 		SessionDBPath:          "/tmp/session.db",
 		CommandTimeout:         60,
-		AIHistoryMaxTurns:      20,
+		AIContextDays:          180,
+		AIContextMaxChars:      400000,
 		SchedulerTimezone:      "Europe/Madrid",
 		SchedulerEnabled:       true,
 		DBAutoCreate:           true,
@@ -31,6 +32,15 @@ func TestBotConfigValidate(t *testing.T) {
 	cfg := validBotConfig()
 	if err := cfg.validate(); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
+	}
+}
+
+// -ai-history-max-turns is deprecated and ignored: any value must validate.
+func TestBotConfigDeprecatedHistoryTurnsIgnored(t *testing.T) {
+	cfg := validBotConfig()
+	cfg.AIHistoryMaxTurns = 0
+	if err := cfg.validate(); err != nil {
+		t.Fatalf("deprecated ai history turns must not fail validation: %v", err)
 	}
 }
 
@@ -48,7 +58,9 @@ func TestBotConfigValidateErrors(t *testing.T) {
 		{"missing db path and dsn", func(c *BotConfig) { c.DBPath = ""; c.DBDSN = "" }},
 		{"mysql without dsn", func(c *BotConfig) { c.DBDriver = "mysql"; c.DBDSN = ""; c.DBPath = "" }},
 		{"missing session db", func(c *BotConfig) { c.SessionDBPath = "" }},
-		{"zero ai history turns", func(c *BotConfig) { c.AIHistoryMaxTurns = 0 }},
+		{"zero ai context days", func(c *BotConfig) { c.AIContextDays = 0 }},
+		{"negative ai context days", func(c *BotConfig) { c.AIContextDays = -1 }},
+		{"zero ai context max chars", func(c *BotConfig) { c.AIContextMaxChars = 0 }},
 		{"zero timeout", func(c *BotConfig) { c.CommandTimeout = 0 }},
 		{"empty scheduler timezone", func(c *BotConfig) { c.SchedulerTimezone = "" }},
 		{"invalid scheduler timezone", func(c *BotConfig) { c.SchedulerTimezone = "Mars/Olympus" }},
